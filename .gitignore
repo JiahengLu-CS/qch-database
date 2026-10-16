@@ -1,0 +1,26 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Python environments
+.venv/
+venv/
+
+# Build artifacts
+build/
+dist/
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Test and editor files
+.pytest_cache/
+.coverage
+.vscode/
+.idea/
