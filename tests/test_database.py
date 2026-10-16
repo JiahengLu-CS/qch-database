@@ -55,3 +55,29 @@ def test_get_gates(db, ghz3_file):
     assert [g["qubits"] for g in gates] == [
         [0], [0, 1], [1, 2]
     ]
+
+def test_persistence(tmp_path, ghz3_file):
+    db_path = tmp_path / "persistent.db"
+
+    db = QCHDatabase(db_path)
+    db.add_circuit("ghz3", ghz3_file)
+    db.close()
+
+    # Reopen the existing database.
+    db = QCHDatabase(db_path)
+
+    features = db.get_features("ghz3")
+    gates = db.get_gates("ghz3")
+
+    assert features == {
+        "num_qubits": 3,
+        "gate_count": 3,
+        "depth": 3
+    }
+
+    assert len(gates) == 3
+    assert [g["gate_type"] for g in gates] == [
+        "h", "cx", "cx"
+    ]
+
+    db.close()

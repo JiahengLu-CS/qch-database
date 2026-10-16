@@ -1,5 +1,8 @@
-﻿import sqlite3
+﻿import json
+import sqlite3
 from pathlib import Path
+
+from qiskit import QuantumCircuit
 
 
 class QCHDatabase:
@@ -8,6 +11,7 @@ class QCHDatabase:
     def __init__(self, db_path="circuits.db"):
         self.db_path = Path(db_path)
         self.connection = sqlite3.connect(self.db_path)
+        self.connection.execute("PRAGMA foreign_keys = ON")
         self._create_tables()
 
     def _create_tables(self):
@@ -35,116 +39,115 @@ class QCHDatabase:
                 FOREIGN KEY (circuit_id) REFERENCES circuits(id)
             );
         """)
-        self.connection.commit()
+
+    def add_circuit(self, name, qasm_path):
+        """Parse and store a circuit, its gates, and its features."""
+        qasm = Path(qasm_path).read_text(encoding="utf-8")
+        qc = QuantumCircuit.from_qasm_str(qasm)
+
+        gates = []
+        for index, instruction in enumerate(qc.data):
+            gates.append((
+                index,
+                instruction.operation.name,
+                json.dumps([
+                    qc.find_bit(q).index
+                    for q in instruction.qubits
+                ])
+            ))
+
+        with self.connection:
+            cursor = self.connection.execute(
+                "INSERT INTO circuits (name, qasm) VALUES (?, ?)",
+                (name, qasm)
+            )
+            circuit_id = cursor.lastrowid
+
+            self.connection.executemany(
+                """
+                INSERT INTO gates
+                    (circuit_id, gate_index, gate_type, qubits)
+                VALUES (?, ?, ?, ?)
+                """,
+                [
+                    (circuit_id, index, gate_type, qubits)
+                    for index, gate_type, qubits in gates
+                ]
+            )
+
+            self.connection.execute(
+                """
+                INSERT INTO features
+                    (circuit_id, num_qubits, gate_count, depth)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    circuit_id,
+                    qc.num_qubits,
+                    qc.size(),
+                    qc.depth()
+                )
+            )
+
+        return circuit_id
+
+    def get_circuit(self, name):
+        """Return stored OpenQASM content."""
+        row = self.connection.execute(
+            "SELECT qasm FROM circuits WHERE name = ?",
+            (name,)
+        ).fetchone()
+        return row[0] if row else None
+
+    def get_features(self, name):
+        """Read stored features without reparsing the circuit."""
+        row = self.connection.execute(
+            """
+            SELECT f.num_qubits, f.gate_count, f.depth
+            FROM features AS f
+            JOIN circuits AS c ON c.id = f.circuit_id
+            WHERE c.name = ?
+            """,
+            (name,)
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "num_qubits": row[0],
+            "gate_count": row[1],
+            "depth": row[2]
+        }
+
+    def get_gates(self, name):
+        """Read stored gates without reparsing the circuit."""
+        circuit = self.connection.execute(
+            "SELECT id FROM circuits WHERE name = ?",
+            (name,)
+        ).fetchone()
+
+        if circuit is None:
+            return None
+
+        rows = self.connection.execute(
+            """
+            SELECT gate_index, gate_type, qubits
+            FROM gates
+            WHERE circuit_id = ?
+            ORDER BY gate_index
+            """,
+            (circuit[0],)
+        ).fetchall()
+
+        return [
+            {
+                "gate_index": index,
+                "gate_type": gate_type,
+                "qubits": json.loads(qubits)
+            }
+            for index, gate_type, qubits in rows
+        ]
 
     def close(self):
         self.connection.close()
-    def add_circuit(self, name, qasm_path):
-        """Store an OpenQASM circuit."""
-        qasm = Path(qasm_path).read_text(encoding="utf-8")
-
-        cursor = self.connection.execute(
-            "INSERT INTO circuits (name, qasm) VALUES (?, ?)",
-            (name, qasm)
-        )
-        self.connection.commit()
-        return cursor.lastrowid
-
-    def get_circuit(self, name):
-        """Retrieve the OpenQASM content of a circuit."""
-        cursor = self.connection.execute(
-            "SELECT qasm FROM circuits WHERE name = ?",
-            (name,)
-        )
-        row = cursor.fetchone()
-        return row[0] if row else None
-    def get_features(self, name):
-        """Compute, store and return basic circuit features."""
-        from qiskit import QuantumCircuit
-
-        qasm = self.get_circuit(name)
-        if qasm is None:
-            return None
-
-        qc = QuantumCircuit.from_qasm_str(qasm)
-
-        features = {
-            "num_qubits": qc.num_qubits,
-            "gate_count": qc.size(),
-            "depth": qc.depth()
-        }
-
-        self.connection.execute(
-            """
-            INSERT INTO features
-                (circuit_id, num_qubits, gate_count, depth)
-            VALUES (
-                (SELECT id FROM circuits WHERE name = ?),
-                ?, ?, ?
-            )
-            ON CONFLICT(circuit_id) DO UPDATE SET
-                num_qubits = excluded.num_qubits,
-                gate_count = excluded.gate_count,
-                depth = excluded.depth
-            """,
-            (
-                name,
-                features["num_qubits"],
-                features["gate_count"],
-                features["depth"]
-            )
-        )
-        self.connection.commit()
-
-        return features
-    def get_gates(self, name):
-        """Extract, store and return circuit gates."""
-        import json
-        from qiskit import QuantumCircuit
-
-        qasm = self.get_circuit(name)
-        if qasm is None:
-            return None
-
-        qc = QuantumCircuit.from_qasm_str(qasm)
-
-        circuit_id = self.connection.execute(
-            "SELECT id FROM circuits WHERE name = ?",
-            (name,)
-        ).fetchone()[0]
-
-        gates = []
-
-        with self.connection:
-            self.connection.execute(
-                "DELETE FROM gates WHERE circuit_id = ?",
-                (circuit_id,)
-            )
-
-            for index, instruction in enumerate(qc.data):
-                gate = {
-                    "gate_index": index,
-                    "gate_type": instruction.operation.name,
-                    "qubits": [
-                        qc.find_bit(q).index
-                        for q in instruction.qubits
-                    ]
-                }
-
-                self.connection.execute(
-                    """
-                    INSERT INTO gates
-                        (circuit_id, gate_index, gate_type, qubits)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        circuit_id,
-                        gate["gate_index"],
-                        gate["gate_type"],
-                        json.dumps(gate["qubits"])
-                    )
-                )
-
-                gates.append(gate)
-
-        return gates
