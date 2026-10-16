@@ -92,3 +92,26 @@ def test_find_circuits(db, ghz3_file):
 
     assert db.find_circuits(min_qubits=3) == ["ghz3"]
     assert db.find_circuits(min_qubits=4) == []
+
+def test_find_circuits_multiple_conditions(db, ghz3_file):
+    db.add_circuit("ghz3", ghz3_file)
+
+    assert db.find_circuits(
+        min_qubits=3,
+        max_depth=3
+    ) == ["ghz3"]
+
+    assert db.find_circuits(
+        min_qubits=3,
+        max_depth=2
+    ) == []
+
+    assert db.find_circuits(
+        max_gates=2
+    ) == []
+
+    assert db.find_circuits(
+        max_qubits=3,
+        min_depth=3,
+        max_gates=3
+    ) == ["ghz3"]

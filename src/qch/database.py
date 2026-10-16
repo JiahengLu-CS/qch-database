@@ -1,4 +1,4 @@
-﻿import json
+import json
 import sqlite3
 from pathlib import Path
 
@@ -159,18 +159,35 @@ class QCHDatabase:
         ).fetchall()
         return [row[0] for row in rows]
 
-    def find_circuits(self, min_qubits=None):
-        """Find circuits by minimum number of qubits."""
+    def find_circuits(
+        self,
+        min_qubits=None,
+        max_qubits=None,
+        min_depth=None,
+        max_depth=None,
+        max_gates=None
+    ):
+        """Find circuits using stored features."""
         sql = """
             SELECT c.name
             FROM circuits AS c
             JOIN features AS f ON c.id = f.circuit_id
+            WHERE 1 = 1
         """
         params = []
 
-        if min_qubits is not None:
-            sql += " WHERE f.num_qubits >= ?"
-            params.append(min_qubits)
+        conditions = [
+            ("f.num_qubits >= ?", min_qubits),
+            ("f.num_qubits <= ?", max_qubits),
+            ("f.depth >= ?", min_depth),
+            ("f.depth <= ?", max_depth),
+            ("f.gate_count <= ?", max_gates)
+        ]
+
+        for condition, value in conditions:
+            if value is not None:
+                sql += " AND " + condition
+                params.append(value)
 
         sql += " ORDER BY c.name"
 
