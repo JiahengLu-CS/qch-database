@@ -115,3 +115,46 @@ def test_find_circuits_multiple_conditions(db, ghz3_file):
         min_depth=3,
         max_gates=3
     ) == ["ghz3"]
+
+def test_find_circuits_ordering(db, tmp_path):
+    qasm2 = tmp_path / "bell2.qasm"
+    qasm2.write_text(
+        """OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[2];
+h q[0];
+cx q[0],q[1];
+""",
+        encoding="utf-8"
+    )
+
+    qasm3 = tmp_path / "ghz3.qasm"
+    qasm3.write_text(
+        """OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[3];
+h q[0];
+cx q[0],q[1];
+cx q[1],q[2];
+""",
+        encoding="utf-8"
+    )
+
+    db.add_circuit("ghz3", qasm3)
+    db.add_circuit("bell2", qasm2)
+
+    assert db.find_circuits(
+        order_by="depth"
+    ) == ["bell2", "ghz3"]
+
+    assert db.find_circuits(
+        order_by="depth",
+        descending=True
+    ) == ["ghz3", "bell2"]
+
+    assert db.find_circuits(
+        order_by="gate_count"
+    ) == ["bell2", "ghz3"]
+
+    with pytest.raises(ValueError):
+        db.find_circuits(order_by="invalid_column")

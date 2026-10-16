@@ -165,7 +165,9 @@ class QCHDatabase:
         max_qubits=None,
         min_depth=None,
         max_depth=None,
-        max_gates=None
+        max_gates=None,
+        order_by="name",
+        descending=False
     ):
         """Find circuits using stored features."""
         sql = """
@@ -189,7 +191,18 @@ class QCHDatabase:
                 sql += " AND " + condition
                 params.append(value)
 
-        sql += " ORDER BY c.name"
+        allowed_columns = {
+            "name": "c.name",
+            "num_qubits": "f.num_qubits",
+            "gate_count": "f.gate_count",
+            "depth": "f.depth"
+        }
+
+        if order_by not in allowed_columns:
+            raise ValueError(f"Unsupported order_by: {order_by}")
+
+        direction = "DESC" if descending else "ASC"
+        sql += f" ORDER BY {allowed_columns[order_by]} {direction}, c.name ASC"
 
         rows = self.connection.execute(sql, params).fetchall()
         return [row[0] for row in rows]
