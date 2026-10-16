@@ -151,3 +151,28 @@ class QCHDatabase:
 
     def close(self):
         self.connection.close()
+
+    def list_circuits(self):
+        """List all stored circuit names."""
+        rows = self.connection.execute(
+            "SELECT name FROM circuits ORDER BY name"
+        ).fetchall()
+        return [row[0] for row in rows]
+
+    def find_circuits(self, min_qubits=None):
+        """Find circuits by minimum number of qubits."""
+        sql = """
+            SELECT c.name
+            FROM circuits AS c
+            JOIN features AS f ON c.id = f.circuit_id
+        """
+        params = []
+
+        if min_qubits is not None:
+            sql += " WHERE f.num_qubits >= ?"
+            params.append(min_qubits)
+
+        sql += " ORDER BY c.name"
+
+        rows = self.connection.execute(sql, params).fetchall()
+        return [row[0] for row in rows]

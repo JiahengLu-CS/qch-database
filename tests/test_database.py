@@ -81,3 +81,14 @@ def test_persistence(tmp_path, ghz3_file):
     ]
 
     db.close()
+
+def test_list_circuits(db, ghz3_file):
+    db.add_circuit("ghz3", ghz3_file)
+
+    assert db.list_circuits() == ["ghz3"]
+
+def test_find_circuits(db, ghz3_file):
+    db.add_circuit("ghz3", ghz3_file)
+
+    assert db.find_circuits(min_qubits=3) == ["ghz3"]
+    assert db.find_circuits(min_qubits=4) == []
