@@ -1,0 +1,217 @@
+﻿# QCH Database — Development Progress
+
+## 1. Project Overview
+
+Project: QCH Database — Quantum Circuit Database System
+
+GitHub: https://github.com/JiahengLu-CS/qch-database
+
+Goal:
+Develop an open-source database system for managing, querying,
+comparing, and optimizing quantum circuits.
+
+Long-term research directions:
+- Quantum circuit storage and management
+- Circuit feature extraction
+- Circuit search and query processing
+- Logical circuits and version evolution
+- Multi-objective and Pareto optimization
+- QCH-SQL query language
+- Structural similarity and circuit comparison
+- Large-scale benchmark ingestion
+
+## 2. Development Environment
+
+- Operating system: Windows 11
+- Python: 3.11.8
+- Database engine: SQLite
+- Quantum framework: Qiskit 2.3.0
+- Testing: pytest 9.1.1
+- Package name: qch
+- Current local package version: 0.1.0
+
+Repository structure:
+
+    qch-database/
+      pyproject.toml
+      README.md
+      src/qch/
+        __init__.py
+        database.py
+        circuit.py
+      tests/
+        test_database.py
+      docs/
+        PROGRESS.md
+
+## 3. Completed Milestones
+
+### Milestone 1: Project Initialization
+
+- Created the Python package structure.
+- Configured pyproject.toml.
+- Initialized Git and GitHub repository.
+- Established the QCHDatabase Python class.
+
+### Milestone 2: Circuit Storage
+
+Implemented:
+
+- add_circuit(name, qasm_path)
+- get_circuit(name)
+
+Capabilities:
+- Import OpenQASM 2.0 circuits.
+- Store circuit source in SQLite.
+- Retrieve stored circuit source.
+
+### Milestone 3: Circuit Features and Gates
+
+Implemented:
+
+- get_features(name)
+- get_gates(name)
+
+Stored features:
+- Number of qubits
+- Gate count
+- Circuit depth
+
+Stored gate information:
+- Gate index
+- Gate type
+- Qubit indices
+
+Architecture improvement:
+- Parse circuits during import.
+- Store gates and features in SQLite.
+- Read stored results without reparsing during queries.
+- Use transactions for circuit insertion.
+
+### Milestone 4: Database Persistence
+
+- Verified data remains available after closing the database.
+- Verified reopening the database preserves gates and features.
+
+### Milestone 5: Circuit Listing and Filtering
+
+Implemented:
+
+- list_circuits()
+- find_circuits()
+
+Supported filters:
+- min_qubits
+- max_qubits
+- min_depth
+- max_depth
+- max_gates
+
+### Milestone 6: Query Ordering
+
+Added sorting to find_circuits().
+
+Supported order_by values:
+- name
+- num_qubits
+- gate_count
+- depth
+
+Supported descending=True/False.
+
+Invalid sorting fields raise ValueError.
+
+## 4. Current Stable Checkpoint
+
+Date: 2026-10-17
+
+Git commit: ed783df
+
+Commit message:
+Add circuit ordering and sorting tests
+
+GitHub branch: main
+
+Automated tests: 9 passed
+
+Test command:
+
+    python -m pytest tests/test_database.py -v
+
+The latest stable checkpoint has been pushed to GitHub.
+
+## 5. Known Limitations
+
+- The database currently uses a simple circuit-name model.
+- Logical circuits and circuit versions are not yet represented.
+- Existing databases created before import-time parsing may
+  have missing stored features or gates.
+- QCH-SQL is not implemented in this new package.
+- Pareto queries are not implemented.
+- Large-scale benchmark ingestion is not yet implemented.
+- The current tests use small example circuits.
+
+## 6. Next Development Tasks
+
+Priority 1: Circuit Version Management
+
+- Inspect the existing SQLite schema.
+- Design logical_circuit and circuit_version entities.
+- Preserve compatibility with existing stored circuits.
+- Add APIs for listing and retrieving versions.
+- Add automated migration and persistence tests.
+
+Priority 2: Multi-objective Queries
+
+- Define comparable circuit version groups.
+- Implement Pareto frontier queries.
+- Support gate count and depth as initial metrics.
+- Add correctness tests.
+
+Priority 3: QCH-SQL
+
+- Define the initial query syntax.
+- Map QCH-SQL queries to database operations.
+- Add filtering, ordering, and metric queries.
+
+Priority 4: Broader Circuit Support
+
+- Import benchmark collections.
+- Extend circuit metadata and structural features.
+- Support circuit transformations and provenance.
+
+## 7. Development Workflow
+
+For each development step:
+
+1. Implement one small feature.
+2. Add automated tests.
+3. Run pytest.
+4. Review changes.
+5. Commit changes to Git.
+6. Push to GitHub.
+7. Update this progress document when a milestone is reached.
+
+## 8. Next Session Starting Point
+
+Start by inspecting the current SQLite schema:
+
+- circuits
+- gates
+- features
+
+Then design a backward-compatible version management model.
+
+Do not delete existing circuit data during migration.
+
+## 9. Important Links
+
+GitHub:
+https://github.com/JiahengLu-CS/qch-database
+
+Earlier QCH demonstration:
+https://quantum-circuit-demo01-appd9ztiavchu2gtvrfu9dp.streamlit.app/
+
+Note:
+The QCH Demo and the new QCH Database package are related
+but currently separate development efforts.
