@@ -262,3 +262,28 @@ but currently separate development efforts.
 - Support circuit evolution queries.
 - Extend metrics for multi-objective optimization.
 - Develop Pareto frontier queries.
+
+## Circuit Evolution Graph - Phase 1
+
+### Completed
+- Added transformation_edges table.
+- Implemented add_transformation().
+- Implemented list_transformations().
+- Supported branching circuit evolution.
+- Recorded transformation types and descriptions.
+- Prevented self-transformation and duplicate edges of the same type.
+- Validated source and target versions within the same logical circuit.
+- Added tests for transformation storage and listing.
+- Verified 18 pytest tests passed.
+
+### Current Limitations
+- Cycle detection is not yet implemented.
+- Transformation semantics are not automatically verified.
+- Graph traversal and ancestry queries are not yet supported.
+- Existing database schema migration is not yet implemented.
+
+### Next Steps
+- Implement cycle detection.
+- Implement evolution path queries.
+- Extend circuit metrics and transformation provenance.
+- Develop Pareto frontier queries.

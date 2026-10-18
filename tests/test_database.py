@@ -431,3 +431,155 @@ def test_compare_versions(tmp_path):
         db.compare_versions("ghz3", 999, 2)
 
     db.close()
+
+
+def test_add_transformation(tmp_path):
+    import pytest
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "transformation.db")
+
+    qasm = (
+        'OPENQASM 2.0;\n'
+        'include "qelib1.inc";\n'
+        'qreg q[3];\n'
+        'h q[0];\n'
+        'cx q[0],q[1];\n'
+        'cx q[1],q[2];\n'
+    )
+
+    path = tmp_path / "ghz3.qasm"
+    path.write_text(qasm, encoding="utf-8")
+
+    db.add_circuit("ghz_original", path)
+    db.add_logical_circuit("ghz3")
+
+    db.add_version("ghz3", "ghz_original", label="v1")
+    db.add_version("ghz3", "ghz_original", label="v2")
+
+    # Create a transformation edge
+    edge_id = db.add_transformation(
+        "ghz3",
+        1,
+        2,
+        "rewrite",
+        "Example circuit transformation"
+    )
+
+    assert edge_id > 0
+
+    # Verify stored transformation
+    row = db.connection.execute(
+        """
+        SELECT
+            source.version_number,
+            target.version_number,
+            e.transformation_type,
+            e.description
+        FROM transformation_edges AS e
+        JOIN circuit_versions AS source
+            ON source.id = e.source_version_id
+        JOIN circuit_versions AS target
+            ON target.id = e.target_version_id
+        WHERE e.id = ?
+        """,
+        (edge_id,)
+    ).fetchone()
+
+    assert row == (
+        1,
+        2,
+        "rewrite",
+        "Example circuit transformation"
+    )
+
+    # Self-transformation is forbidden
+    with pytest.raises(ValueError):
+        db.add_transformation("ghz3", 1, 1, "rewrite")
+
+    # Missing versions are forbidden
+    with pytest.raises(ValueError):
+        db.add_transformation("ghz3", 1, 999, "rewrite")
+
+    # Empty transformation type is forbidden
+    with pytest.raises(ValueError):
+        db.add_transformation("ghz3", 1, 2, "")
+
+    # Duplicate transformation is forbidden
+    with pytest.raises(Exception):
+        db.add_transformation("ghz3", 1, 2, "rewrite")
+
+    db.close()
+
+def test_list_transformations(tmp_path):
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "list_transformations.db")
+
+    qasm = (
+        'OPENQASM 2.0;\n'
+        'include "qelib1.inc";\n'
+        'qreg q[3];\n'
+        'h q[0];\n'
+        'cx q[0],q[1];\n'
+        'cx q[1],q[2];\n'
+    )
+
+    path = tmp_path / "ghz3.qasm"
+    path.write_text(qasm, encoding="utf-8")
+
+    db.add_circuit("ghz_original", path)
+
+    db.add_logical_circuit("ghz3")
+    db.add_logical_circuit("other")
+
+    db.add_version("ghz3", "ghz_original", label="v1")
+    db.add_version("ghz3", "ghz_original", label="v2")
+    db.add_version("ghz3", "ghz_original", label="v3")
+
+    db.add_version("other", "ghz_original", label="v1")
+    db.add_version("other", "ghz_original", label="v2")
+
+    # Add two branches to GHZ-3
+    db.add_transformation(
+        "ghz3", 1, 2,
+        "optimization",
+        "First transformation"
+    )
+
+    db.add_transformation(
+        "ghz3", 1, 3,
+        "decomposition",
+        "Second transformation"
+    )
+
+    # Add an unrelated transformation
+    db.add_transformation(
+        "other", 1, 2,
+        "rewrite",
+        "Other logical circuit"
+    )
+
+    edges = db.list_transformations("ghz3")
+
+    assert len(edges) == 2
+
+    assert edges[0]["source_version"] == 1
+    assert edges[0]["target_version"] == 2
+    assert edges[0]["transformation_type"] == "optimization"
+    assert edges[0]["description"] == "First transformation"
+
+    assert edges[1]["source_version"] == 1
+    assert edges[1]["target_version"] == 3
+    assert edges[1]["transformation_type"] == "decomposition"
+
+    # Verify logical-circuit isolation
+    other_edges = db.list_transformations("other")
+
+    assert len(other_edges) == 1
+    assert other_edges[0]["transformation_type"] == "rewrite"
+
+    # Unknown logical circuit returns an empty list
+    assert db.list_transformations("unknown") == []
+
+    db.close()

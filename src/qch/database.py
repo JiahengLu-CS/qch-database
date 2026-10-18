@@ -66,6 +66,30 @@ class QCHDatabase:
     			UNIQUE (logical_circuit_id, version_number)
 			);
 
+           CREATE TABLE IF NOT EXISTS transformation_edges (
+    			id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    			source_version_id INTEGER NOT NULL,
+    			target_version_id INTEGER NOT NULL,
+
+    			transformation_type TEXT NOT NULL,
+    			description TEXT,
+
+    			FOREIGN KEY (source_version_id)
+        			REFERENCES circuit_versions(id),
+
+    			FOREIGN KEY (target_version_id)
+        			REFERENCES circuit_versions(id),
+
+    			CHECK (source_version_id != target_version_id),
+
+    			UNIQUE (
+        			source_version_id,
+        			target_version_id,
+        			transformation_type
+    				)
+		);
+
         """)
 
     def add_logical_circuit(self, name, description=None):
@@ -241,6 +265,104 @@ class QCHDatabase:
             "version_b": version_b,
             "metrics": metrics
         }
+
+
+    def add_transformation(
+        self,
+        logical_name,
+        source_version,
+        target_version,
+        transformation_type,
+        description=None
+    ):
+        """Record a transformation between two circuit versions."""
+
+        if source_version == target_version:
+            raise ValueError("Source and target versions must differ")
+
+        if not transformation_type or not transformation_type.strip():
+            raise ValueError("Transformation type cannot be empty")
+
+        def find_version_id(version_number):
+            row = self.connection.execute(
+                """
+                SELECT cv.id
+                FROM circuit_versions AS cv
+                JOIN logical_circuits AS lc
+                    ON lc.id = cv.logical_circuit_id
+                WHERE lc.name = ?
+                  AND cv.version_number = ?
+                """,
+                (logical_name, version_number)
+            ).fetchone()
+
+            if row is None:
+                raise ValueError(
+                    f"Version not found: {logical_name} v{version_number}"
+                )
+
+            return row[0]
+
+        with self.connection:
+            source_id = find_version_id(source_version)
+            target_id = find_version_id(target_version)
+
+            cursor = self.connection.execute(
+                """
+                INSERT INTO transformation_edges
+                    (
+                        source_version_id,
+                        target_version_id,
+                        transformation_type,
+                        description
+                    )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    source_id,
+                    target_id,
+                    transformation_type.strip(),
+                    description
+                )
+            )
+
+        return cursor.lastrowid
+
+    def list_transformations(self, logical_name):
+        """List transformation edges for a logical circuit."""
+
+        rows = self.connection.execute(
+            """
+            SELECT
+                e.id,
+                source.version_number,
+                target.version_number,
+                e.transformation_type,
+                e.description
+            FROM transformation_edges AS e
+            JOIN circuit_versions AS source
+                ON source.id = e.source_version_id
+            JOIN circuit_versions AS target
+                ON target.id = e.target_version_id
+            JOIN logical_circuits AS lc
+                ON lc.id = source.logical_circuit_id
+            WHERE lc.name = ?
+              AND target.logical_circuit_id = lc.id
+            ORDER BY e.id ASC
+            """,
+            (logical_name,)
+        ).fetchall()
+
+        return [
+            {
+                "edge_id": row[0],
+                "source_version": row[1],
+                "target_version": row[2],
+                "transformation_type": row[3],
+                "description": row[4]
+            }
+            for row in rows
+        ]
 
     def add_circuit(self, name, qasm_path):
         """Parse and store a circuit, its gates, and its features."""
