@@ -802,3 +802,89 @@ class QCHDatabase:
             "depth": row[5],
             "optimized_metric": metric,
         }
+
+    def find_pareto_versions(
+        self, logical_name, metrics=("gate_count", "depth")
+    ):
+        """Find Pareto-optimal circuit versions (smaller is better)."""
+
+        allowed_metrics = {
+            "gate_count": "gate_count",
+            "depth": "depth",
+            "num_qubits": "num_qubits",
+        }
+
+        if isinstance(metrics, str):
+            raise ValueError("metrics must be a non-empty sequence")
+
+        try:
+            metrics = tuple(metrics)
+        except TypeError:
+            raise ValueError("metrics must be a non-empty sequence") from None
+
+        if not metrics or any(
+            not isinstance(m, str) or m not in allowed_metrics
+            for m in metrics
+        ):
+            raise ValueError("Unsupported metrics")
+
+        if len(set(metrics)) != len(metrics):
+            raise ValueError("Duplicate metrics are not allowed")
+
+        rows = self.connection.execute(
+            """
+            SELECT
+                cv.version_number,
+                cv.version_label,
+                c.name,
+                f.num_qubits,
+                f.gate_count,
+                f.depth
+            FROM circuit_versions AS cv
+            JOIN logical_circuits AS lc
+                ON lc.id = cv.logical_circuit_id
+            JOIN circuits AS c
+                ON c.id = cv.circuit_id
+            JOIN features AS f
+                ON f.circuit_id = c.id
+            WHERE lc.name = ?
+            ORDER BY cv.version_number
+            """,
+            (logical_name,)
+        ).fetchall()
+
+        versions = [
+            {
+                "version_number": row[0],
+                "version_label": row[1],
+                "circuit_name": row[2],
+                "num_qubits": row[3],
+                "gate_count": row[4],
+                "depth": row[5],
+            }
+            for row in rows
+        ]
+
+        # Only compare versions with all requested metrics available.
+        versions = [
+            v for v in versions
+            if all(v[m] is not None for m in metrics)
+        ]
+
+        def dominates(a, b):
+            return (
+                all(a[m] <= b[m] for m in metrics)
+                and any(a[m] < b[m] for m in metrics)
+            )
+
+        frontier = []
+
+        for candidate in versions:
+            if not any(
+                dominates(other, candidate)
+                for other in versions
+                if other is not candidate
+            ):
+                frontier.append(candidate)
+
+        return frontier

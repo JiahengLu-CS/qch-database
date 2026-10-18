@@ -901,3 +901,108 @@ def test_find_best_version(tmp_path):
     assert db.find_best_version("unknown") is None
 
     db.close()
+
+
+def test_find_pareto_versions(tmp_path):
+    import pytest
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "pareto.db")
+
+    # All circuits have three qubits.
+    # Each gate list is chosen to control gate count and depth.
+    circuits = {
+        "circuit_v1": [
+            "h q[0];",
+            "x q[0];",
+            "z q[0];",
+            "h q[0];",
+        ],
+        "circuit_v2": [
+            "h q[0];",
+            "x q[0];",
+            "z q[0];",
+        ],
+        "circuit_v3": [
+            "h q[0];",
+            "x q[0];",
+        ],
+        "circuit_v4": [
+            "h q[0];",
+            "x q[1];",
+            "z q[2];",
+        ],
+    }
+
+    db.add_logical_circuit("pareto_demo")
+
+    for i, (name, gates) in enumerate(circuits.items(), start=1):
+        qasm = (
+            'OPENQASM 2.0;\n'
+            'include "qelib1.inc";\n'
+            'qreg q[3];\n'
+            + "\n".join(gates)
+            + "\n"
+        )
+
+        path = tmp_path / f"{name}.qasm"
+        path.write_text(qasm, encoding="utf-8")
+
+        db.add_circuit(name, path)
+        db.add_version("pareto_demo", name, label=f"v{i}")
+
+    # Check actual metrics before testing Pareto dominance.
+    versions = db.list_versions("pareto_demo")
+
+    assert [
+        (v["gate_count"], v["depth"])
+        for v in versions
+    ] == [
+        (4, 4),
+        (3, 3),
+        (2, 2),
+        (3, 1),
+    ]
+
+    # Both gate count and depth should be minimized.
+    frontier = db.find_pareto_versions(
+        "pareto_demo",
+        metrics=["gate_count", "depth"]
+    )
+
+    assert [v["version_number"] for v in frontier] == [3, 4]
+
+    # Optimizing only gate count selects v3.
+    gate_frontier = db.find_pareto_versions(
+        "pareto_demo",
+        metrics=["gate_count"]
+    )
+    assert [v["version_number"] for v in gate_frontier] == [3]
+
+    # Optimizing only depth selects v4.
+    depth_frontier = db.find_pareto_versions(
+        "pareto_demo",
+        metrics=["depth"]
+    )
+    assert [v["version_number"] for v in depth_frontier] == [4]
+
+    # Invalid metrics must be rejected.
+    with pytest.raises(ValueError):
+        db.find_pareto_versions(
+            "pareto_demo", metrics=["unknown"]
+        )
+
+    with pytest.raises(ValueError):
+        db.find_pareto_versions(
+            "pareto_demo", metrics=[]
+        )
+
+    with pytest.raises(ValueError):
+        db.find_pareto_versions(
+            "pareto_demo", metrics=["depth", "depth"]
+        )
+
+    # Unknown logical circuit returns an empty frontier.
+    assert db.find_pareto_versions("unknown") == []
+
+    db.close()

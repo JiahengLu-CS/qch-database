@@ -403,3 +403,27 @@ but currently separate development efforts.
 - Support multi-objective circuit optimization.
 - Extend circuit features with two-qubit gate count and T-count.
 - Integrate circuit equivalence verification.
+
+## Pareto Frontier Query - Phase 1
+
+### Completed
+- Implemented find_pareto_versions().
+- Supported multi-objective minimization of gate_count, depth and num_qubits.
+- Implemented Pareto dominance checking.
+- Supported single-metric and multi-metric queries.
+- Preserved multiple non-dominated circuit versions.
+- Added input validation for unsupported and duplicate metrics.
+- Added test_find_pareto_versions().
+- Verified 24 automated pytest tests passed.
+
+### Current Limitations
+- Pareto comparison uses an O(N^2 * K) algorithm.
+- Only structural circuit metrics are supported.
+- Circuit semantic equivalence is not verified.
+- Hardware-specific metrics are not yet available.
+
+### Next Steps
+- Add two-qubit gate count and T-count.
+- Extend Pareto queries with hardware-aware metrics.
+- Integrate semantic equivalence verification.
+- Explore efficient Skyline query processing.
