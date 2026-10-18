@@ -131,6 +131,42 @@ class QCHDatabase:
         return version_number
 
 
+    def list_versions(self, logical_name):
+        """List versions of a logical circuit in version order."""
+        rows = self.connection.execute(
+            """
+            SELECT
+                cv.version_number,
+                cv.version_label,
+                c.name,
+                f.num_qubits,
+                f.gate_count,
+                f.depth
+            FROM circuit_versions AS cv
+            JOIN logical_circuits AS lc
+                ON lc.id = cv.logical_circuit_id
+            JOIN circuits AS c
+                ON c.id = cv.circuit_id
+            LEFT JOIN features AS f
+                ON f.circuit_id = c.id
+            WHERE lc.name = ?
+            ORDER BY cv.version_number ASC
+            """,
+            (logical_name,)
+        ).fetchall()
+
+        return [
+            {
+                "version_number": row[0],
+                "version_label": row[1],
+                "circuit_name": row[2],
+                "num_qubits": row[3],
+                "gate_count": row[4],
+                "depth": row[5]
+            }
+            for row in rows
+        ]
+
     def add_circuit(self, name, qasm_path):
         """Parse and store a circuit, its gates, and its features."""
         qasm = Path(qasm_path).read_text(encoding="utf-8")

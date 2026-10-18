@@ -295,3 +295,43 @@ def test_version_number_constraint(tmp_path):
             )
 
     db.close()
+
+
+def test_list_versions(tmp_path):
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "list_versions.db")
+
+    qasm_path = tmp_path / "ghz3.qasm"
+    qasm_path.write_text(
+        "OPENQASM 2.0;\n"
+        'include "qelib1.inc";\n'
+        "qreg q[3];\n"
+        "h q[0];\n"
+        "cx q[0],q[1];\n"
+        "cx q[1],q[2];\n",
+        encoding="utf-8"
+    )
+
+    db.add_circuit("ghz3_original", qasm_path)
+    db.add_logical_circuit("ghz3")
+
+    db.add_version("ghz3", "ghz3_original", label="original")
+    db.add_version("ghz3", "ghz3_original", label="reused")
+
+    versions = db.list_versions("ghz3")
+
+    assert len(versions) == 2
+    assert [v["version_number"] for v in versions] == [1, 2]
+    assert [v["version_label"] for v in versions] == [
+        "original", "reused"
+    ]
+
+    assert versions[0]["circuit_name"] == "ghz3_original"
+    assert versions[0]["num_qubits"] == 3
+    assert versions[0]["gate_count"] == 3
+    assert versions[0]["depth"] == 3
+
+    assert db.list_versions("unknown") == []
+
+    db.close()

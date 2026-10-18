@@ -215,3 +215,26 @@ https://quantum-circuit-demo01-appd9ztiavchu2gtvrfu9dp.streamlit.app/
 Note:
 The QCH Demo and the new QCH Database package are related
 but currently separate development efforts.
+
+## 2026-10-18: Circuit Version Management Milestone
+
+### Completed
+- Added logical_circuits and circuit_versions tables.
+- Implemented add_logical_circuit().
+- Implemented add_version() with automatic version numbering.
+- Implemented list_versions() with circuit features.
+- Supported sharing one stored circuit across multiple logical circuits.
+- Added tests for invalid references and version uniqueness.
+- Preserved existing circuit storage and query APIs.
+
+### Verification
+- 14 pytest tests passed.
+- Version listing tested with an in-memory SQLite database.
+- Previous stable GitHub commit: ca07138.
+
+### Next Steps
+- Implement get_version().
+- Add persistence tests for version management.
+- Design safe schema migration for existing databases.
+- Improve version numbering for concurrent writers.
+- Explore circuit evolution relationships and Pareto queries.
