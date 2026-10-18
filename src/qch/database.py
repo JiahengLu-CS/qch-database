@@ -203,6 +203,45 @@ class QCHDatabase:
             "depth": row[5]
         }
 
+    def compare_versions(self, logical_name, version_a, version_b):
+        """Compare structural metrics of two circuit versions."""
+
+        first = self.get_version(logical_name, version_a)
+        second = self.get_version(logical_name, version_b)
+
+        if first is None:
+            raise ValueError(
+                f"Version not found: {logical_name} v{version_a}"
+            )
+
+        if second is None:
+            raise ValueError(
+                f"Version not found: {logical_name} v{version_b}"
+            )
+
+        metrics = {}
+
+        for metric in ("num_qubits", "gate_count", "depth"):
+            value_a = first[metric]
+            value_b = second[metric]
+
+            metrics[metric] = {
+                "version_a": value_a,
+                "version_b": value_b,
+                "delta": (
+                    value_b - value_a
+                    if value_a is not None and value_b is not None
+                    else None
+                )
+            }
+
+        return {
+            "logical_circuit": logical_name,
+            "version_a": version_a,
+            "version_b": version_b,
+            "metrics": metrics
+        }
+
     def add_circuit(self, name, qasm_path):
         """Parse and store a circuit, its gates, and its features."""
         qasm = Path(qasm_path).read_text(encoding="utf-8")

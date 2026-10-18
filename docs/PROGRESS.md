@@ -238,3 +238,27 @@ but currently separate development efforts.
 - Design safe schema migration for existing databases.
 - Improve version numbering for concurrent writers.
 - Explore circuit evolution relationships and Pareto queries.
+
+## Circuit Version Comparison Milestone
+
+### Completed
+- Implemented get_version(logical_name, version_number).
+- Implemented compare_versions(logical_name, version_a, version_b).
+- Added comparison of num_qubits, gate_count, and depth.
+- Defined delta as version_b minus version_a.
+- Handled missing metrics using None.
+- Added error handling for missing versions.
+- Verified 16 automated pytest tests passed.
+
+### Example
+- GHZ-3 version 1: 3 gates, depth 3.
+- GHZ-3 version 2: 5 gates, depth 4.
+- Gate count delta: +2.
+- Depth delta: +1.
+
+### Next Steps
+- Design circuit evolution graph.
+- Store transformation relationships between versions.
+- Support circuit evolution queries.
+- Extend metrics for multi-objective optimization.
+- Develop Pareto frontier queries.

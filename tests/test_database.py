@@ -376,3 +376,58 @@ def test_get_version(tmp_path):
     assert db.get_version("unknown", 1) is None
 
     db.close()
+
+
+def test_compare_versions(tmp_path):
+    import pytest
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "compare_versions.db")
+
+    qasm1 = (
+        'OPENQASM 2.0;\n'
+        'include "qelib1.inc";\n'
+        'qreg q[3];\n'
+        'h q[0];\n'
+        'cx q[0],q[1];\n'
+        'cx q[1],q[2];\n'
+    )
+
+    qasm2 = qasm1 + 'x q[0];\nx q[0];\n'
+
+    path1 = tmp_path / "v1.qasm"
+    path2 = tmp_path / "v2.qasm"
+
+    path1.write_text(qasm1, encoding="utf-8")
+    path2.write_text(qasm2, encoding="utf-8")
+
+    db.add_circuit("ghz_v1", path1)
+    db.add_circuit("ghz_v2", path2)
+
+    db.add_logical_circuit("ghz3")
+    db.add_version("ghz3", "ghz_v1", label="original")
+    db.add_version("ghz3", "ghz_v2", label="extra_gates")
+
+    result = db.compare_versions("ghz3", 1, 2)
+
+    assert result["logical_circuit"] == "ghz3"
+    assert result["version_a"] == 1
+    assert result["version_b"] == 2
+
+    metrics = result["metrics"]
+
+    assert metrics["num_qubits"]["delta"] == 0
+    assert metrics["gate_count"]["delta"] == 2
+    assert metrics["depth"]["delta"] == 1
+
+    assert metrics["gate_count"]["version_a"] == 3
+    assert metrics["gate_count"]["version_b"] == 5
+
+    # Verify missing versions raise ValueError
+    with pytest.raises(ValueError, match="Version not found"):
+        db.compare_versions("ghz3", 1, 999)
+
+    with pytest.raises(ValueError, match="Version not found"):
+        db.compare_versions("ghz3", 999, 2)
+
+    db.close()
