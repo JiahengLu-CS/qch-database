@@ -821,3 +821,83 @@ def test_find_evolution_paths(tmp_path):
         db.find_evolution_paths("ghz3", 1, 99)
 
     db.close()
+
+
+def test_find_best_version(tmp_path):
+    import pytest
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "best_version.db")
+
+    circuits = {
+        "circuit_v1": [
+            "h q[0];",
+            "cx q[0],q[1];",
+            "cx q[1],q[2];",
+        ],
+        "circuit_v2": [
+            "h q[0];",
+            "cx q[0],q[1];",
+            "cx q[1],q[2];",
+            "x q[2];",
+            "x q[2];",
+        ],
+        "circuit_v3": [
+            "h q[0];",
+            "cx q[0],q[1];",
+        ],
+    }
+
+    db.add_logical_circuit("ghz3")
+
+    for version_number, (name, gates) in enumerate(
+        circuits.items(), start=1
+    ):
+        qasm = (
+            'OPENQASM 2.0;\n'
+            'include "qelib1.inc";\n'
+            'qreg q[3];\n'
+            + "\n".join(gates)
+            + "\n"
+        )
+
+        path = tmp_path / f"{name}.qasm"
+        path.write_text(qasm, encoding="utf-8")
+
+        db.add_circuit(name, path)
+        db.add_version("ghz3", name, label=f"v{version_number}")
+
+    # Best version by gate count.
+    best_gates = db.find_best_version(
+        "ghz3", metric="gate_count"
+    )
+
+    assert best_gates["version_number"] == 3
+    assert best_gates["circuit_name"] == "circuit_v3"
+    assert best_gates["gate_count"] == 2
+    assert best_gates["optimized_metric"] == "gate_count"
+
+    # Best version by circuit depth.
+    best_depth = db.find_best_version(
+        "ghz3", metric="depth"
+    )
+
+    assert best_depth["version_number"] == 3
+    assert best_depth["depth"] == 2
+
+    # All versions have three qubits.
+    # The earliest version wins the tie.
+    best_qubits = db.find_best_version(
+        "ghz3", metric="num_qubits"
+    )
+
+    assert best_qubits["version_number"] == 1
+
+    # Invalid metric.
+    with pytest.raises(ValueError, match="Unsupported metric"):
+        db.find_best_version("ghz3", metric="unknown")
+
+    # Unknown logical circuit.
+    assert db.find_best_version("unknown") is None
+
+    db.close()

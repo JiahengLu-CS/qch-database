@@ -382,3 +382,24 @@ but currently separate development efforts.
 - Implement shortest-path queries.
 - Develop cost-based circuit evolution analysis.
 - Extend provenance and optimization metrics.
+
+## Best Circuit Query - Phase 1
+
+### Completed
+- Implemented find_best_version().
+- Supported minimum gate_count, depth and num_qubits.
+- Used SQL ORDER BY to select the best version.
+- Added deterministic tie-breaking by version number.
+- Added test_find_best_version().
+- Verified 23 automated pytest tests passed.
+
+### Limitations
+- Optimization currently uses one structural metric at a time.
+- Semantic equivalence between circuit versions is not verified.
+- Hardware-specific costs are not yet considered.
+
+### Next Steps
+- Implement Pareto Frontier Query.
+- Support multi-objective circuit optimization.
+- Extend circuit features with two-qubit gate count and T-count.
+- Integrate circuit equivalence verification.

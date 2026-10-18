@@ -750,3 +750,55 @@ class QCHDatabase:
 
         rows = self.connection.execute(sql, params).fetchall()
         return [row[0] for row in rows]
+
+
+    def find_best_version(self, logical_name, metric="gate_count"):
+        """Find the best circuit version by a structural metric."""
+
+        allowed_metrics = {
+            "gate_count": "f.gate_count",
+            "depth": "f.depth",
+            "num_qubits": "f.num_qubits",
+        }
+
+        if metric not in allowed_metrics:
+            raise ValueError(f"Unsupported metric: {metric}")
+
+        column = allowed_metrics[metric]
+
+        row = self.connection.execute(
+            f"""
+            SELECT
+                cv.version_number,
+                cv.version_label,
+                c.name,
+                f.num_qubits,
+                f.gate_count,
+                f.depth
+            FROM circuit_versions AS cv
+            JOIN logical_circuits AS lc
+                ON lc.id = cv.logical_circuit_id
+            JOIN circuits AS c
+                ON c.id = cv.circuit_id
+            JOIN features AS f
+                ON f.circuit_id = c.id
+            WHERE lc.name = ?
+              AND {column} IS NOT NULL
+            ORDER BY {column} ASC, cv.version_number ASC
+            LIMIT 1
+            """,
+            (logical_name,)
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        return {
+            "version_number": row[0],
+            "version_label": row[1],
+            "circuit_name": row[2],
+            "num_qubits": row[3],
+            "gate_count": row[4],
+            "depth": row[5],
+            "optimized_metric": metric,
+        }
