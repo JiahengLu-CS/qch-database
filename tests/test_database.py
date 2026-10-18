@@ -648,3 +648,109 @@ def test_transformation_cycle_detection(tmp_path):
     assert len(db.list_transformations("ghz3")) == 3
 
     db.close()
+
+def test_get_ancestors(tmp_path):
+    import pytest
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "ancestors.db")
+
+    qasm = (
+        'OPENQASM 2.0;\n'
+        'include "qelib1.inc";\n'
+        'qreg q[3];\n'
+        'h q[0];\n'
+        'cx q[0],q[1];\n'
+        'cx q[1],q[2];\n'
+    )
+
+    path = tmp_path / "ghz3.qasm"
+    path.write_text(qasm, encoding="utf-8")
+
+    db.add_circuit("ghz_original", path)
+    db.add_logical_circuit("ghz3")
+
+    # Create four versions.
+    for i in range(1, 5):
+        db.add_version(
+            "ghz3", "ghz_original", label=f"v{i}"
+        )
+
+    # Construct a branching evolution graph.
+    db.add_transformation("ghz3", 1, 2, "rewrite")
+    db.add_transformation("ghz3", 1, 3, "decomposition")
+    db.add_transformation("ghz3", 2, 4, "optimization")
+    db.add_transformation("ghz3", 3, 4, "optimization")
+
+    # v4 has three distinct ancestors.
+    assert db.get_ancestors("ghz3", 4) == [1, 2, 3]
+
+    # v2 and v3 share the same ancestor.
+    assert db.get_ancestors("ghz3", 2) == [1]
+    assert db.get_ancestors("ghz3", 3) == [1]
+
+    # The root version has no ancestors.
+    assert db.get_ancestors("ghz3", 1) == []
+
+    # Unknown versions must be rejected.
+    with pytest.raises(ValueError, match="Version not found"):
+        db.get_ancestors("ghz3", 99)
+
+    # Unknown logical circuits must also be rejected.
+    with pytest.raises(ValueError, match="Version not found"):
+        db.get_ancestors("unknown", 1)
+
+    db.close()
+
+def test_get_descendants(tmp_path):
+    import pytest
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "descendants.db")
+
+    qasm = (
+        'OPENQASM 2.0;\n'
+        'include "qelib1.inc";\n'
+        'qreg q[3];\n'
+        'h q[0];\n'
+        'cx q[0],q[1];\n'
+        'cx q[1],q[2];\n'
+    )
+
+    path = tmp_path / "ghz3.qasm"
+    path.write_text(qasm, encoding="utf-8")
+
+    db.add_circuit("ghz_original", path)
+    db.add_logical_circuit("ghz3")
+
+    # Create four versions.
+    for i in range(1, 5):
+        db.add_version(
+            "ghz3", "ghz_original", label=f"v{i}"
+        )
+
+    # Construct a branching and merging evolution graph.
+    db.add_transformation("ghz3", 1, 2, "rewrite")
+    db.add_transformation("ghz3", 1, 3, "decomposition")
+    db.add_transformation("ghz3", 2, 4, "optimization")
+    db.add_transformation("ghz3", 3, 4, "optimization")
+
+    # v1 has three distinct descendants.
+    assert db.get_descendants("ghz3", 1) == [2, 3, 4]
+
+    # Both branches lead to v4.
+    assert db.get_descendants("ghz3", 2) == [4]
+    assert db.get_descendants("ghz3", 3) == [4]
+
+    # v4 is a terminal version.
+    assert db.get_descendants("ghz3", 4) == []
+
+    # Unknown version.
+    with pytest.raises(ValueError, match="Version not found"):
+        db.get_descendants("ghz3", 99)
+
+    # Unknown logical circuit.
+    with pytest.raises(ValueError, match="Version not found"):
+        db.get_descendants("unknown", 1)
+
+    db.close()

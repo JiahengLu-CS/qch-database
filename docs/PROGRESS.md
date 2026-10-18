@@ -316,3 +316,35 @@ but currently separate development efforts.
 - Implement get_descendants().
 - Support evolution path queries.
 - Extend transformation provenance and metrics.
+
+## Circuit Provenance - Phase 1
+
+### Completed
+- Implemented get_ancestors(logical_name, version_number).
+- Implemented get_descendants(logical_name, version_number).
+- Used SQLite recursive CTEs for graph traversal.
+- Supported branching and merging evolution histories.
+- Removed duplicate results when multiple paths reach the same version.
+- Returned version numbers in ascending order.
+- Added automated tests for ancestor and descendant queries.
+- Verified 21 pytest tests passed.
+
+### Current Capabilities
+- Store quantum circuits and structural features.
+- Manage logical circuits and multiple versions.
+- Compare structural metrics between versions.
+- Record typed transformation edges.
+- Prevent cycles when adding transformation edges.
+- Query all ancestors and descendants of a version.
+
+### Limitations
+- Evolution path queries are not yet implemented.
+- Transformation semantics are not automatically verified.
+- Database migrations are not yet implemented.
+- Concurrent graph updates require stronger transaction handling.
+
+### Next Steps
+- Implement find_evolution_paths().
+- Support transformation history queries.
+- Add optimization metrics and provenance metadata.
+- Develop graph-based quantum circuit optimization analysis.

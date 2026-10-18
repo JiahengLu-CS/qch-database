@@ -389,6 +389,110 @@ class QCHDatabase:
             for row in rows
         ]
 
+
+    def get_ancestors(self, logical_name, version_number):
+        """Return all ancestor version numbers, excluding the version itself."""
+
+        row = self.connection.execute(
+            """
+            SELECT cv.id
+            FROM circuit_versions AS cv
+            JOIN logical_circuits AS lc
+                ON lc.id = cv.logical_circuit_id
+            WHERE lc.name = ?
+              AND cv.version_number = ?
+            """,
+            (logical_name, version_number)
+        ).fetchone()
+
+        if row is None:
+            raise ValueError(
+                f"Version not found: {logical_name} v{version_number}"
+            )
+
+        version_id = row[0]
+
+        rows = self.connection.execute(
+            """
+            WITH RECURSIVE ancestors(version_id) AS (
+                SELECT e.source_version_id
+                FROM transformation_edges AS e
+                WHERE e.target_version_id = ?
+
+                UNION
+
+                SELECT e.source_version_id
+                FROM transformation_edges AS e
+                JOIN ancestors AS a
+                    ON e.target_version_id = a.version_id
+            )
+            SELECT DISTINCT cv.version_number
+            FROM ancestors AS a
+            JOIN circuit_versions AS cv
+                ON cv.id = a.version_id
+            JOIN circuit_versions AS target
+                ON target.id = ?
+            WHERE cv.logical_circuit_id = target.logical_circuit_id
+              AND cv.id != target.id
+            ORDER BY cv.version_number
+            """,
+            (version_id, version_id)
+        ).fetchall()
+
+        return [row[0] for row in rows]
+
+
+    def get_descendants(self, logical_name, version_number):
+        """Return all descendant version numbers, excluding the version itself."""
+
+        row = self.connection.execute(
+            """
+            SELECT cv.id
+            FROM circuit_versions AS cv
+            JOIN logical_circuits AS lc
+                ON lc.id = cv.logical_circuit_id
+            WHERE lc.name = ?
+              AND cv.version_number = ?
+            """,
+            (logical_name, version_number)
+        ).fetchone()
+
+        if row is None:
+            raise ValueError(
+                f"Version not found: {logical_name} v{version_number}"
+            )
+
+        version_id = row[0]
+
+        rows = self.connection.execute(
+            """
+            WITH RECURSIVE descendants(version_id) AS (
+                SELECT e.target_version_id
+                FROM transformation_edges AS e
+                WHERE e.source_version_id = ?
+
+                UNION
+
+                SELECT e.target_version_id
+                FROM transformation_edges AS e
+                JOIN descendants AS d
+                    ON e.source_version_id = d.version_id
+            )
+            SELECT DISTINCT cv.version_number
+            FROM descendants AS d
+            JOIN circuit_versions AS cv
+                ON cv.id = d.version_id
+            JOIN circuit_versions AS source
+                ON source.id = ?
+            WHERE cv.logical_circuit_id = source.logical_circuit_id
+              AND cv.id != source.id
+            ORDER BY cv.version_number
+            """,
+            (version_id, version_id)
+        ).fetchall()
+
+        return [row[0] for row in rows]
+
     def add_circuit(self, name, qasm_path):
         """Parse and store a circuit, its gates, and its features."""
         qasm = Path(qasm_path).read_text(encoding="utf-8")
