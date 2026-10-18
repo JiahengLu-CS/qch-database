@@ -754,3 +754,70 @@ def test_get_descendants(tmp_path):
         db.get_descendants("unknown", 1)
 
     db.close()
+
+def test_find_evolution_paths(tmp_path):
+    import pytest
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "paths.db")
+
+    qasm = (
+        'OPENQASM 2.0;\n'
+        'include "qelib1.inc";\n'
+        'qreg q[3];\n'
+        'h q[0];\n'
+        'cx q[0],q[1];\n'
+        'cx q[1],q[2];\n'
+    )
+
+    path = tmp_path / "ghz3.qasm"
+    path.write_text(qasm, encoding="utf-8")
+
+    db.add_circuit("ghz_original", path)
+    db.add_logical_circuit("ghz3")
+
+    # Create four versions.
+    for i in range(1, 5):
+        db.add_version(
+            "ghz3", "ghz_original", label=f"v{i}"
+        )
+
+    # Build two evolution paths.
+    db.add_transformation("ghz3", 1, 2, "rewrite")
+    db.add_transformation("ghz3", 1, 3, "decomposition")
+    db.add_transformation("ghz3", 2, 4, "optimization")
+    db.add_transformation("ghz3", 3, 4, "optimization")
+
+    # Find all paths from v1 to v4.
+    paths = db.find_evolution_paths("ghz3", 1, 4)
+
+    assert paths == [
+        [1, 2, 4],
+        [1, 3, 4]
+    ]
+
+    # A version has a trivial path to itself.
+    assert db.find_evolution_paths("ghz3", 2, 2) == [[2]]
+
+    # No reverse path exists.
+    assert db.find_evolution_paths("ghz3", 4, 1) == []
+
+    # A single direct edge forms one path.
+    assert db.find_evolution_paths("ghz3", 1, 2) == [[1, 2]]
+
+    # Limit the number of returned paths.
+    assert db.find_evolution_paths(
+        "ghz3", 1, 4, max_paths=1
+    ) == [[1, 2, 4]]
+
+    # Invalid path limit.
+    with pytest.raises(ValueError, match="max_paths"):
+        db.find_evolution_paths(
+            "ghz3", 1, 4, max_paths=0
+        )
+
+    # Unknown version.
+    with pytest.raises(ValueError, match="Version not found"):
+        db.find_evolution_paths("ghz3", 1, 99)
+
+    db.close()

@@ -348,3 +348,37 @@ but currently separate development efforts.
 - Support transformation history queries.
 - Add optimization metrics and provenance metadata.
 - Develop graph-based quantum circuit optimization analysis.
+
+## Evolution Path Query - Phase 1
+
+### Completed
+- Implemented find_evolution_paths().
+- Used depth-first search (DFS) to enumerate directed paths.
+- Supported branching and merging evolution graphs.
+- Prevented repeated node visits during path traversal.
+- Supported max_paths to limit returned results.
+- Returned deterministic paths ordered by version number.
+- Added automated tests for path enumeration.
+- Verified 22 pytest tests passed.
+
+### Current Capabilities
+- Store quantum circuits and structural features.
+- Manage logical circuits and circuit versions.
+- Compare circuit metrics between versions.
+- Record transformation relationships.
+- Detect cycles when inserting transformation edges.
+- Query ancestors and descendants.
+- Find directed evolution paths between versions.
+
+### Limitations
+- Paths currently contain version numbers only, not edge metadata.
+- Multiple transformation types between the same versions are collapsed.
+- Path enumeration can be expensive for large evolution graphs.
+- max_paths limits output size but does not guarantee optimal paths.
+- Transformation correctness is not yet verified automatically.
+
+### Next Steps
+- Support transformation-aware evolution paths.
+- Implement shortest-path queries.
+- Develop cost-based circuit evolution analysis.
+- Extend provenance and optimization metrics.

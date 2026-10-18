@@ -493,6 +493,97 @@ class QCHDatabase:
 
         return [row[0] for row in rows]
 
+    def find_evolution_paths(
+        self, logical_name, source_version, target_version,
+        max_paths=1000
+    ):
+        """Find directed evolution paths between two versions."""
+
+        if max_paths < 1:
+            raise ValueError("max_paths must be positive")
+
+        def find_version_id(version_number):
+            row = self.connection.execute(
+                """
+                SELECT cv.id
+                FROM circuit_versions AS cv
+                JOIN logical_circuits AS lc
+                    ON lc.id = cv.logical_circuit_id
+                WHERE lc.name = ? AND cv.version_number = ?
+                """,
+                (logical_name, version_number)
+            ).fetchone()
+
+            if row is None:
+                raise ValueError(
+                    f"Version not found: {logical_name} v{version_number}"
+                )
+
+            return row[0]
+
+        source_id = find_version_id(source_version)
+        target_id = find_version_id(target_version)
+
+        if source_id == target_id:
+            return [[source_version]]
+
+        # Load edges belonging to this logical circuit.
+        rows = self.connection.execute(
+            """
+            SELECT e.source_version_id, e.target_version_id,
+                   target.version_number
+            FROM transformation_edges AS e
+            JOIN circuit_versions AS source
+                ON source.id = e.source_version_id
+            JOIN circuit_versions AS target
+                ON target.id = e.target_version_id
+            WHERE source.logical_circuit_id = (
+                SELECT id FROM logical_circuits WHERE name = ?
+            )
+              AND target.logical_circuit_id = source.logical_circuit_id
+            ORDER BY target.version_number
+            """,
+            (logical_name,)
+        ).fetchall()
+
+        adjacency = {}
+
+        for from_id, to_id, to_number in rows:
+            adjacency.setdefault(from_id, set()).add(
+                (to_id, to_number)
+            )
+
+        paths = []
+
+        def dfs(current_id, path, visited):
+            if len(paths) >= max_paths:
+                return
+
+            if current_id == target_id:
+                paths.append(path.copy())
+                return
+
+            for next_id, next_number in sorted(
+                adjacency.get(current_id, set()),
+                key=lambda item: item[1]
+            ):
+                if next_id not in visited:
+                    visited.add(next_id)
+                    path.append(next_number)
+
+                    dfs(next_id, path, visited)
+
+                    path.pop()
+                    visited.remove(next_id)
+
+                    if len(paths) >= max_paths:
+                        return
+
+        dfs(source_id, [source_version], {source_id})
+
+        return paths
+
+
     def add_circuit(self, name, qasm_path):
         """Parse and store a circuit, its gates, and its features."""
         qasm = Path(qasm_path).read_text(encoding="utf-8")
