@@ -307,6 +307,31 @@ class QCHDatabase:
             source_id = find_version_id(source_version)
             target_id = find_version_id(target_version)
 
+            # Reject transformations that would create a cycle.
+            cycle = self.connection.execute(
+                """
+                WITH RECURSIVE reachable(version_id) AS (
+                    SELECT ?
+                    UNION
+                    SELECT e.target_version_id
+                    FROM transformation_edges AS e
+                    JOIN reachable AS r
+                        ON e.source_version_id = r.version_id
+                )
+                SELECT 1
+                FROM reachable
+                WHERE version_id = ?
+                LIMIT 1
+                """,
+                (target_id, source_id)
+            ).fetchone()
+
+            if cycle is not None:
+                raise ValueError(
+                    f"Transformation would create a cycle: "
+                    f"{logical_name} v{source_version} -> v{target_version}"
+                )
+
             cursor = self.connection.execute(
                 """
                 INSERT INTO transformation_edges

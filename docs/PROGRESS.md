@@ -287,3 +287,32 @@ but currently separate development efforts.
 - Implement evolution path queries.
 - Extend circuit metrics and transformation provenance.
 - Develop Pareto frontier queries.
+
+## Circuit Evolution Graph - Cycle Detection
+
+### Completed
+- Implemented cycle detection in add_transformation().
+- Used SQLite recursive CTE (WITH RECURSIVE).
+- Rejected transformations that create directed cycles.
+- Preserved valid branching evolution relationships.
+- Verified failed cycle insertions do not modify the graph.
+- Added test_transformation_cycle_detection().
+- Verified 19 automated pytest tests passed.
+
+### Current Design
+- Circuit versions are nodes.
+- Transformation records are directed edges.
+- New edges are checked for cycles before insertion.
+- Evolution graphs support branching and multiple incoming edges.
+
+### Limitations
+- Concurrent writers are not yet fully supported.
+- Existing databases are not yet checked for historical cycles.
+- Ancestor and descendant queries are not yet implemented.
+- Transformation semantics are not automatically verified.
+
+### Next Steps
+- Implement get_ancestors().
+- Implement get_descendants().
+- Support evolution path queries.
+- Extend transformation provenance and metrics.

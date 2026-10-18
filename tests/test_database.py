@@ -583,3 +583,68 @@ def test_list_transformations(tmp_path):
     assert db.list_transformations("unknown") == []
 
     db.close()
+
+
+def test_transformation_cycle_detection(tmp_path):
+    import pytest
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "cycle_test.db")
+
+    qasm = (
+        'OPENQASM 2.0;\n'
+        'include "qelib1.inc";\n'
+        'qreg q[3];\n'
+        'h q[0];\n'
+        'cx q[0],q[1];\n'
+        'cx q[1],q[2];\n'
+    )
+
+    path = tmp_path / "ghz3.qasm"
+    path.write_text(qasm, encoding="utf-8")
+
+    db.add_circuit("ghz_original", path)
+    db.add_logical_circuit("ghz3")
+
+    # Create three versions
+    for i in range(1, 4):
+        db.add_version(
+            "ghz3",
+            "ghz_original",
+            label=f"v{i}"
+        )
+
+    # Create v1 -> v2 -> v3
+    db.add_transformation("ghz3", 1, 2, "rewrite")
+    db.add_transformation("ghz3", 2, 3, "optimization")
+
+    # Reject v3 -> v1: would create a cycle
+    with pytest.raises(ValueError, match="cycle"):
+        db.add_transformation(
+            "ghz3", 3, 1, "decomposition"
+        )
+
+    # Reject v2 -> v1: would create a smaller cycle
+    with pytest.raises(ValueError, match="cycle"):
+        db.add_transformation(
+            "ghz3", 2, 1, "rewrite"
+        )
+
+    # Verify that failed inserts did not modify the graph
+    edges = db.list_transformations("ghz3")
+
+    assert len(edges) == 2
+
+    assert [
+        (e["source_version"], e["target_version"])
+        for e in edges
+    ] == [(1, 2), (2, 3)]
+
+    # A valid branch should still be allowed
+    db.add_transformation(
+        "ghz3", 1, 3, "decomposition"
+    )
+
+    assert len(db.list_transformations("ghz3")) == 3
+
+    db.close()
