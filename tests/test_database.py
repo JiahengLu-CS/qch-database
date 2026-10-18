@@ -335,3 +335,44 @@ def test_list_versions(tmp_path):
     assert db.list_versions("unknown") == []
 
     db.close()
+
+
+def test_get_version(tmp_path):
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "get_version.db")
+
+    qasm_path = tmp_path / "ghz3.qasm"
+    qasm_path.write_text(
+        "OPENQASM 2.0;\n"
+        'include "qelib1.inc";\n'
+        "qreg q[3];\n"
+        "h q[0];\n"
+        "cx q[0],q[1];\n"
+        "cx q[1],q[2];\n",
+        encoding="utf-8"
+    )
+
+    db.add_circuit("ghz3_original", qasm_path)
+    db.add_logical_circuit("ghz3")
+    db.add_version(
+        "ghz3",
+        "ghz3_original",
+        label="original"
+    )
+
+    version = db.get_version("ghz3", 1)
+
+    assert version == {
+        "version_number": 1,
+        "version_label": "original",
+        "circuit_name": "ghz3_original",
+        "num_qubits": 3,
+        "gate_count": 3,
+        "depth": 3
+    }
+
+    assert db.get_version("ghz3", 999) is None
+    assert db.get_version("unknown", 1) is None
+
+    db.close()
