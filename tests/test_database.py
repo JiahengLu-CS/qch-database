@@ -158,3 +158,140 @@ cx q[1],q[2];
 
     with pytest.raises(ValueError):
         db.find_circuits(order_by="invalid_column")
+
+
+
+def test_add_logical_circuit(tmp_path):
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "logical.db")
+
+    logical_id = db.add_logical_circuit(
+        "ghz3",
+        "Three-qubit GHZ state preparation"
+    )
+
+    row = db.connection.execute(
+        """
+        SELECT name, description
+        FROM logical_circuits
+        WHERE id = ?
+        """,
+        (logical_id,)
+    ).fetchone()
+
+    assert row == (
+        "ghz3",
+        "Three-qubit GHZ state preparation"
+    )
+
+    db.close()
+
+
+def test_version_numbering_and_sharing(tmp_path):
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "versions.db")
+
+    qasm_path = tmp_path / "ghz3.qasm"
+    qasm_path.write_text(
+        "OPENQASM 2.0;\n"
+        'include "qelib1.inc";\n'
+        "qreg q[3];\n"
+        "h q[0];\n"
+        "cx q[0],q[1];\n"
+        "cx q[1],q[2];\n",
+        encoding="utf-8"
+    )
+
+    db.add_circuit("ghz3_original", qasm_path)
+
+    db.add_logical_circuit("ghz3")
+    db.add_logical_circuit("benchmark_ghz3")
+
+    v1 = db.add_version(
+        "ghz3", "ghz3_original", label="original"
+    )
+    v2 = db.add_version(
+        "ghz3", "ghz3_original", label="reused"
+    )
+    v3 = db.add_version(
+        "benchmark_ghz3", "ghz3_original", label="baseline"
+    )
+
+    assert (v1, v2, v3) == (1, 2, 1)
+
+    circuit_count = db.connection.execute(
+        "SELECT COUNT(*) FROM circuits"
+    ).fetchone()[0]
+
+    version_count = db.connection.execute(
+        "SELECT COUNT(*) FROM circuit_versions"
+    ).fetchone()[0]
+
+    assert circuit_count == 1
+    assert version_count == 3
+
+    db.close()
+
+
+def test_add_version_invalid_references(tmp_path):
+    import pytest
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "invalid_versions.db")
+    db.add_logical_circuit("ghz3")
+
+    with pytest.raises(ValueError, match="Logical circuit not found"):
+        db.add_version("unknown", "missing")
+
+    with pytest.raises(ValueError, match="Circuit not found"):
+        db.add_version("ghz3", "missing")
+
+    count = db.connection.execute(
+        "SELECT COUNT(*) FROM circuit_versions"
+    ).fetchone()[0]
+
+    assert count == 0
+    db.close()
+
+
+def test_version_number_constraint(tmp_path):
+    import sqlite3
+    import pytest
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "version_constraint.db")
+
+    logical_id = db.add_logical_circuit("ghz3")
+
+    db.connection.execute(
+        "INSERT INTO circuits (name, qasm) VALUES (?, ?)",
+        ("c1", "placeholder")
+    )
+    circuit_id = db.connection.execute(
+        "SELECT id FROM circuits WHERE name = 'c1'"
+    ).fetchone()[0]
+
+    db.connection.execute(
+        """
+        INSERT INTO circuit_versions
+        (logical_circuit_id, version_number, circuit_id)
+        VALUES (?, 1, ?)
+        """,
+        (logical_id, circuit_id)
+    )
+    db.connection.commit()
+
+    with pytest.raises(sqlite3.IntegrityError):
+        with db.connection:
+            db.connection.execute(
+                """
+                INSERT INTO circuit_versions
+                (logical_circuit_id, version_number, circuit_id)
+                VALUES (?, 1, ?)
+                """,
+                (logical_id, circuit_id)
+            )
+
+    db.close()

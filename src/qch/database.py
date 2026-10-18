@@ -38,7 +38,98 @@ class QCHDatabase:
                 depth INTEGER,
                 FOREIGN KEY (circuit_id) REFERENCES circuits(id)
             );
+
+            CREATE TABLE IF NOT EXISTS logical_circuits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS circuit_versions (
+    			id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    			logical_circuit_id INTEGER NOT NULL,
+
+    			version_number INTEGER NOT NULL
+       		 CHECK (version_number >= 1),
+
+    			version_label TEXT,
+
+    			circuit_id INTEGER NOT NULL,
+
+    			FOREIGN KEY (logical_circuit_id)
+        		REFERENCES logical_circuits(id),
+
+    			FOREIGN KEY (circuit_id)
+        		REFERENCES circuits(id),
+
+    			UNIQUE (logical_circuit_id, version_number)
+			);
+
         """)
+
+    def add_logical_circuit(self, name, description=None):
+        """Create a logical circuit and return its ID."""
+        with self.connection:
+            cursor = self.connection.execute(
+                """
+                INSERT INTO logical_circuits (name, description)
+                VALUES (?, ?)
+                """,
+                (name, description)
+            )
+        return cursor.lastrowid
+
+    def add_version(self, logical_name, circuit_name, label=None):
+        """Add a circuit version with an automatically assigned number."""
+
+        with self.connection:
+            logical = self.connection.execute(
+                "SELECT id FROM logical_circuits WHERE name = ?",
+                (logical_name,)
+            ).fetchone()
+
+            if logical is None:
+                raise ValueError(
+                    f"Logical circuit not found: {logical_name}"
+                )
+
+            circuit = self.connection.execute(
+                "SELECT id FROM circuits WHERE name = ?",
+                (circuit_name,)
+            ).fetchone()
+
+            if circuit is None:
+                raise ValueError(
+                    f"Circuit not found: {circuit_name}"
+                )
+
+            logical_id = logical[0]
+            circuit_id = circuit[0]
+
+            row = self.connection.execute(
+                """
+                SELECT COALESCE(MAX(version_number), 0) + 1
+                FROM circuit_versions
+                WHERE logical_circuit_id = ?
+                """,
+                (logical_id,)
+            ).fetchone()
+
+            version_number = row[0]
+
+            self.connection.execute(
+                """
+                INSERT INTO circuit_versions
+                    (logical_circuit_id, version_number,
+                     version_label, circuit_id)
+                VALUES (?, ?, ?, ?)
+                """,
+                (logical_id, version_number, label, circuit_id)
+            )
+
+        return version_number
+
 
     def add_circuit(self, name, qasm_path):
         """Parse and store a circuit, its gates, and its features."""
