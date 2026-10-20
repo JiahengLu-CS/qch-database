@@ -72,7 +72,9 @@ def test_persistence(tmp_path, ghz3_file):
     assert features == {
         "num_qubits": 3,
         "gate_count": 3,
-        "depth": 3
+        "depth": 3,
+	  "two_qubit_gate_count": 2,
+        "t_count": 0
     }
 
     assert len(gates) == 3
@@ -1004,5 +1006,363 @@ def test_find_pareto_versions(tmp_path):
 
     # Unknown logical circuit returns an empty frontier.
     assert db.find_pareto_versions("unknown") == []
+
+    db.close()
+
+
+def test_quantum_resource_metrics(tmp_path):
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "resource_metrics.db")
+
+    qasm = """
+OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[3];
+
+h q[0];
+cx q[0],q[1];
+t q[1];
+cz q[1],q[2];
+t q[2];
+tdg q[0];
+"""
+
+    qasm_path = tmp_path / "resource_test.qasm"
+    qasm_path.write_text(qasm, encoding="utf-8")
+
+    db.add_circuit("resource_test", qasm_path)
+
+    row = db.connection.execute(
+        """
+        SELECT
+            gate_count,
+            two_qubit_gate_count,
+            t_count
+        FROM features AS f
+        JOIN circuits AS c ON c.id = f.circuit_id
+        WHERE c.name = ?
+        """,
+        ("resource_test",)
+    ).fetchone()
+
+    assert row is not None
+
+    gate_count, two_qubit_count, t_count = row
+
+    assert gate_count == 6
+    assert two_qubit_count == 2
+    assert t_count == 2
+
+    db.close()
+
+
+def test_backfill_resource_metrics(tmp_path):
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "backfill.db")
+
+    qasm = """
+OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[3];
+
+h q[0];
+cx q[0],q[1];
+t q[1];
+cz q[1],q[2];
+t q[2];
+tdg q[0];
+"""
+
+    qasm_path = tmp_path / "backfill.qasm"
+    qasm_path.write_text(qasm, encoding="utf-8")
+
+    circuit_id = db.add_circuit("backfill_test", qasm_path)
+
+    # Simulate a historical record with missing metrics.
+    with db.connection:
+        db.connection.execute(
+            """
+            UPDATE features
+            SET two_qubit_gate_count = NULL,
+                t_count = NULL
+            WHERE circuit_id = ?
+            """,
+            (circuit_id,)
+        )
+
+    # First backfill should update one circuit.
+    updated = db.backfill_resource_metrics()
+    assert updated == 1
+
+    row = db.connection.execute(
+        """
+        SELECT two_qubit_gate_count, t_count
+        FROM features
+        WHERE circuit_id = ?
+        """,
+        (circuit_id,)
+    ).fetchone()
+
+    assert row == (2, 2)
+
+    # Second backfill should have nothing to update.
+    updated_again = db.backfill_resource_metrics()
+    assert updated_again == 0
+
+    db.close()
+
+def test_resource_metrics_schema_migration(tmp_path):
+    import sqlite3
+    from qch import QCHDatabase
+
+    db_path = tmp_path / "legacy.db"
+
+    # Simulate an old database schema.
+    connection = sqlite3.connect(db_path)
+
+    connection.executescript("""
+        CREATE TABLE circuits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            qasm TEXT NOT NULL
+        );
+
+        CREATE TABLE features (
+            circuit_id INTEGER PRIMARY KEY,
+            num_qubits INTEGER,
+            gate_count INTEGER,
+            depth INTEGER,
+            FOREIGN KEY (circuit_id) REFERENCES circuits(id)
+        );
+
+        INSERT INTO circuits (id, name, qasm)
+        VALUES (1, 'legacy_circuit', 'OPENQASM 2.0;');
+
+        INSERT INTO features
+            (circuit_id, num_qubits, gate_count, depth)
+        VALUES (1, 3, 5, 4);
+    """)
+
+    connection.close()
+
+    # Opening the old database should migrate its schema.
+    db = QCHDatabase(db_path)
+
+    columns = {
+        row[1]
+        for row in db.connection.execute(
+            "PRAGMA table_info(features)"
+        ).fetchall()
+    }
+
+    assert "two_qubit_gate_count" in columns
+    assert "t_count" in columns
+
+    # Original data must be preserved.
+    row = db.connection.execute(
+        """
+        SELECT
+            num_qubits,
+            gate_count,
+            depth,
+            two_qubit_gate_count,
+            t_count
+        FROM features
+        WHERE circuit_id = 1
+        """
+    ).fetchone()
+
+    assert row == (3, 5, 4, None, None)
+
+    db.close()
+
+    # Migration must also be safe when opening the database again.
+    db = QCHDatabase(db_path)
+
+    columns_again = [
+        row[1]
+        for row in db.connection.execute(
+            "PRAGMA table_info(features)"
+        ).fetchall()
+    ]
+
+    assert columns_again.count("two_qubit_gate_count") == 1
+    assert columns_again.count("t_count") == 1
+
+    db.close()
+
+def test_find_best_version_resource_metrics(tmp_path):
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "best_resources.db")
+
+    circuits = {
+        "resource_v1": [
+            "h q[0];",
+            "cx q[0],q[1];",
+            "cx q[1],q[2];",
+            "t q[0];",
+        ],
+        "resource_v2": [
+            "h q[0];",
+            "cx q[0],q[1];",
+            "t q[0];",
+            "t q[1];",
+        ],
+        "resource_v3": [
+            "h q[0];",
+            "cx q[0],q[1];",
+            "cx q[1],q[2];",
+            "cz q[0],q[2];",
+        ],
+    }
+
+    db.add_logical_circuit("resource_demo")
+
+    for i, (name, gates) in enumerate(circuits.items(), start=1):
+        qasm = (
+            'OPENQASM 2.0;\n'
+            'include "qelib1.inc";\n'
+            'qreg q[3];\n'
+            + "\n".join(gates)
+            + "\n"
+        )
+
+        path = tmp_path / f"{name}.qasm"
+        path.write_text(qasm, encoding="utf-8")
+
+        db.add_circuit(name, path)
+        db.add_version("resource_demo", name, label=f"v{i}")
+
+    # Minimum two-qubit gate count: v2.
+    best_two_qubit = db.find_best_version(
+        "resource_demo",
+        metric="two_qubit_gate_count"
+    )
+
+    assert best_two_qubit["version_number"] == 2
+    assert best_two_qubit["optimized_metric"] == "two_qubit_gate_count"
+
+    # Minimum T-count: v3.
+    best_t = db.find_best_version(
+        "resource_demo",
+        metric="t_count"
+    )
+
+    assert best_t["version_number"] == 3
+    assert best_t["optimized_metric"] == "t_count"
+
+    db.close()
+
+
+def test_find_pareto_versions_resource_metrics(tmp_path):
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "resource_pareto.db")
+
+    circuits = {
+        "resource_v1": [
+            "cx q[0],q[1];",
+            "t q[0];",
+            "t q[1];",
+            "t q[2];",
+        ],
+        "resource_v2": [
+            "cx q[0],q[1];",
+            "cz q[1],q[2];",
+            "t q[0];",
+        ],
+        "resource_v3": [
+            "cx q[0],q[1];",
+            "cx q[1],q[2];",
+            "cz q[0],q[2];",
+            "t q[0];",
+            "t q[1];",
+            "t q[2];",
+        ],
+        "resource_v4": [
+            "cx q[0],q[1];",
+            "t q[0];",
+            "t q[1];",
+            "t q[2];",
+            "t q[0];",
+        ],
+    }
+
+    db.add_logical_circuit("resource_pareto_demo")
+
+    for i, (name, gates) in enumerate(circuits.items(), start=1):
+        qasm = (
+            'OPENQASM 2.0;\n'
+            'include "qelib1.inc";\n'
+            'qreg q[3];\n'
+            + "\n".join(gates)
+            + "\n"
+        )
+
+        path = tmp_path / f"{name}.qasm"
+        path.write_text(qasm, encoding="utf-8")
+
+        db.add_circuit(name, path)
+        db.add_version(
+            "resource_pareto_demo",
+            name,
+            label=f"v{i}"
+        )
+
+    frontier = db.find_pareto_versions(
+        "resource_pareto_demo",
+        metrics=["two_qubit_gate_count", "t_count"]
+    )
+
+    assert [v["version_number"] for v in frontier] == [1, 2]
+
+    assert [
+        (v["two_qubit_gate_count"], v["t_count"])
+        for v in frontier
+    ] == [
+        (1, 3),
+        (2, 1),
+    ]
+
+    db.close()
+
+
+def test_get_features_five_metrics(tmp_path):
+    from qch import QCHDatabase
+
+    db = QCHDatabase(tmp_path / "five_metrics.db")
+
+    qasm = """
+OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[3];
+h q[0];
+cx q[0],q[1];
+t q[1];
+cz q[1],q[2];
+t q[2];
+tdg q[0];
+"""
+
+    qasm_path = tmp_path / "five_metrics.qasm"
+    qasm_path.write_text(qasm, encoding="utf-8")
+
+    db.add_circuit("five_metrics_demo", qasm_path)
+
+    features = db.get_features("five_metrics_demo")
+
+    assert features == {
+        "num_qubits": 3,
+        "gate_count": 6,
+        "depth": 5,
+        "two_qubit_gate_count": 2,
+        "t_count": 2,
+    }
+
+    # A nonexistent circuit should return None.
+    assert db.get_features("nonexistent") is None
 
     db.close()

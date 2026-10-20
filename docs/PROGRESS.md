@@ -427,3 +427,29 @@ but currently separate development efforts.
 - Extend Pareto queries with hardware-aware metrics.
 - Integrate semantic equivalence verification.
 - Explore efficient Skyline query processing.
+
+
+
+## Quantum Resource Metrics and Optimization (October 2026)
+
+### Implemented
+- Extended circuit features with `two_qubit_gate_count` and `t_count`.
+- Added automatic SQLite schema migration for existing databases.
+- Added `backfill_resource_metrics()` to recover resource metrics from stored gate records.
+- Extended `get_features()` to return five circuit metrics.
+- Extended `find_best_version()` to support quantum resource metrics.
+- Extended `find_pareto_versions()` to support multi-objective quantum resource optimization.
+
+### Testing
+- 30 automated tests passed using Python 3.11.8 and pytest 9.1.1.
+- Verified schema migration, persistence, resource metric computation, best-version queries, and Pareto frontier queries.
+
+### Known Limitations
+- T-count currently counts explicit `t` gates, excluding `tdg` and decomposed equivalents.
+- Two-qubit gate count is based on parsed circuit instructions, not hardware-native decompositions.
+- Resource comparisons do not automatically establish semantic equivalence.
+
+### Next Steps
+- Review and commit implementation and tests to GitHub.
+- Improve resource metric semantics and query behavior for incomplete historical data.
+- Extend QCH benchmark ingestion and execution provenance.

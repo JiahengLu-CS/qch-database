@@ -36,8 +36,10 @@ class QCHDatabase:
                 num_qubits INTEGER,
                 gate_count INTEGER,
                 depth INTEGER,
+                two_qubit_gate_count INTEGER,
+                t_count INTEGER,
                 FOREIGN KEY (circuit_id) REFERENCES circuits(id)
-            );
+        );
 
             CREATE TABLE IF NOT EXISTS logical_circuits (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,51 +48,67 @@ class QCHDatabase:
             );
 
             CREATE TABLE IF NOT EXISTS circuit_versions (
-    			id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-    			logical_circuit_id INTEGER NOT NULL,
+                logical_circuit_id INTEGER NOT NULL,
 
-    			version_number INTEGER NOT NULL
-       		 CHECK (version_number >= 1),
+                version_number INTEGER NOT NULL
+                CHECK (version_number >= 1),
 
-    			version_label TEXT,
+                version_label TEXT,
 
-    			circuit_id INTEGER NOT NULL,
+                circuit_id INTEGER NOT NULL,
 
-    			FOREIGN KEY (logical_circuit_id)
-        		REFERENCES logical_circuits(id),
+                FOREIGN KEY (logical_circuit_id)
+                REFERENCES logical_circuits(id),
 
-    			FOREIGN KEY (circuit_id)
-        		REFERENCES circuits(id),
+                FOREIGN KEY (circuit_id)
+                REFERENCES circuits(id),
 
-    			UNIQUE (logical_circuit_id, version_number)
-			);
+                UNIQUE (logical_circuit_id, version_number)
+            );
 
            CREATE TABLE IF NOT EXISTS transformation_edges (
-    			id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-    			source_version_id INTEGER NOT NULL,
-    			target_version_id INTEGER NOT NULL,
+                source_version_id INTEGER NOT NULL,
+                target_version_id INTEGER NOT NULL,
 
-    			transformation_type TEXT NOT NULL,
-    			description TEXT,
+                transformation_type TEXT NOT NULL,
+                description TEXT,
 
-    			FOREIGN KEY (source_version_id)
-        			REFERENCES circuit_versions(id),
+                FOREIGN KEY (source_version_id)
+                    REFERENCES circuit_versions(id),
 
-    			FOREIGN KEY (target_version_id)
-        			REFERENCES circuit_versions(id),
+                FOREIGN KEY (target_version_id)
+                    REFERENCES circuit_versions(id),
 
-    			CHECK (source_version_id != target_version_id),
+                CHECK (source_version_id != target_version_id),
 
-    			UNIQUE (
-        			source_version_id,
-        			target_version_id,
-        			transformation_type
-    				)
-		);
+                UNIQUE (
+                    source_version_id,
+                    target_version_id,
+                    transformation_type
+                    )
+        );
 
         """)
+
+      # Safely migrate existing databases.
+        existing_columns = {
+            row[1]
+            for row in self.connection.execute(
+                "PRAGMA table_info(features)"
+            ).fetchall()
+        }
+
+        for column in ("two_qubit_gate_count", "t_count"):
+            if column not in existing_columns:
+                self.connection.execute(
+                    f"ALTER TABLE features ADD COLUMN {column} INTEGER"
+                )
+
+        self.connection.commit()
 
     def add_logical_circuit(self, name, description=None):
         """Create a logical circuit and return its ID."""
@@ -165,7 +183,9 @@ class QCHDatabase:
                 c.name,
                 f.num_qubits,
                 f.gate_count,
-                f.depth
+                f.depth,
+                f.two_qubit_gate_count,
+                f.t_count
             FROM circuit_versions AS cv
             JOIN logical_circuits AS lc
                 ON lc.id = cv.logical_circuit_id
@@ -186,8 +206,8 @@ class QCHDatabase:
                 "circuit_name": row[2],
                 "num_qubits": row[3],
                 "gate_count": row[4],
-                "depth": row[5]
-            }
+                "depth": row[5],
+        }
             for row in rows
         ]
 
@@ -584,21 +604,87 @@ class QCHDatabase:
         return paths
 
 
+    def backfill_resource_metrics(self):
+        """Fill missing resource metrics using stored gate records."""
+
+        rows = self.connection.execute(
+            """
+            SELECT
+                f.circuit_id,
+                SUM(
+                    CASE
+                        WHEN json_array_length(g.qubits) = 2
+                        THEN 1 ELSE 0
+                    END
+                ),
+                SUM(
+                    CASE
+                        WHEN g.gate_type = 't'
+                        THEN 1 ELSE 0
+                    END
+                )
+            FROM features AS f
+            LEFT JOIN gates AS g
+                ON g.circuit_id = f.circuit_id
+            WHERE f.two_qubit_gate_count IS NULL
+               OR f.t_count IS NULL
+            GROUP BY f.circuit_id
+            """
+        ).fetchall()
+
+        with self.connection:
+            for circuit_id, two_qubit_count, t_count in rows:
+                self.connection.execute(
+                    """
+                    UPDATE features
+                    SET
+                        two_qubit_gate_count =
+                            COALESCE(
+                                two_qubit_gate_count, ?
+                            ),
+                        t_count =
+                            COALESCE(t_count, ?)
+                    WHERE circuit_id = ?
+                    """,
+                    (
+                        two_qubit_count or 0,
+                        t_count or 0,
+                        circuit_id
+                    )
+                )
+
+        return len(rows)
+
+
     def add_circuit(self, name, qasm_path):
         """Parse and store a circuit, its gates, and its features."""
         qasm = Path(qasm_path).read_text(encoding="utf-8")
         qc = QuantumCircuit.from_qasm_str(qasm)
 
         gates = []
+        two_qubit_gate_count = 0
+        t_count = 0
+
         for index, instruction in enumerate(qc.data):
+            gate_type = instruction.operation.name
+            qubits = [
+                qc.find_bit(q).index
+                for q in instruction.qubits
+            ]
+
             gates.append((
                 index,
-                instruction.operation.name,
-                json.dumps([
-                    qc.find_bit(q).index
-                    for q in instruction.qubits
-                ])
+                gate_type,
+                json.dumps(qubits)
             ))
+
+            # Count gates acting on exactly two qubits.
+            if len(qubits) == 2:
+                two_qubit_gate_count += 1
+
+            # Count T gates (excluding T-dagger).
+            if gate_type == "t":
+                t_count += 1
 
         with self.connection:
             cursor = self.connection.execute(
@@ -622,14 +708,23 @@ class QCHDatabase:
             self.connection.execute(
                 """
                 INSERT INTO features
-                    (circuit_id, num_qubits, gate_count, depth)
-                VALUES (?, ?, ?, ?)
+                    (
+                        circuit_id,
+                        num_qubits,
+                        gate_count,
+                        depth,
+                        two_qubit_gate_count,
+                        t_count
+                    )
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     circuit_id,
                     qc.num_qubits,
                     qc.size(),
-                    qc.depth()
+                    qc.depth(),
+                    two_qubit_gate_count,
+                    t_count
                 )
             )
 
@@ -647,7 +742,12 @@ class QCHDatabase:
         """Read stored features without reparsing the circuit."""
         row = self.connection.execute(
             """
-            SELECT f.num_qubits, f.gate_count, f.depth
+            SELECT
+                f.num_qubits,
+                f.gate_count,
+                f.depth,
+                f.two_qubit_gate_count,
+                f.t_count
             FROM features AS f
             JOIN circuits AS c ON c.id = f.circuit_id
             WHERE c.name = ?
@@ -661,7 +761,9 @@ class QCHDatabase:
         return {
             "num_qubits": row[0],
             "gate_count": row[1],
-            "depth": row[2]
+            "depth": row[2],
+            "two_qubit_gate_count": row[3],
+            "t_count": row[4],
         }
 
     def get_gates(self, name):
@@ -759,6 +861,8 @@ class QCHDatabase:
             "gate_count": "f.gate_count",
             "depth": "f.depth",
             "num_qubits": "f.num_qubits",
+            "two_qubit_gate_count": "f.two_qubit_gate_count",
+            "t_count": "f.t_count",
         }
 
         if metric not in allowed_metrics:
@@ -812,7 +916,9 @@ class QCHDatabase:
             "gate_count": "gate_count",
             "depth": "depth",
             "num_qubits": "num_qubits",
-        }
+            "two_qubit_gate_count": "two_qubit_gate_count",
+            "t_count": "t_count",
+    }
 
         if isinstance(metrics, str):
             raise ValueError("metrics must be a non-empty sequence")
@@ -839,7 +945,9 @@ class QCHDatabase:
                 c.name,
                 f.num_qubits,
                 f.gate_count,
-                f.depth
+                f.depth,
+                f.two_qubit_gate_count,
+                f.t_count
             FROM circuit_versions AS cv
             JOIN logical_circuits AS lc
                 ON lc.id = cv.logical_circuit_id
@@ -861,6 +969,8 @@ class QCHDatabase:
                 "num_qubits": row[3],
                 "gate_count": row[4],
                 "depth": row[5],
+                "two_qubit_gate_count": row[6],
+                "t_count": row[7],
             }
             for row in rows
         ]
