@@ -22,15 +22,15 @@ managing, querying, comparing, and optimizing quantum circuits.
 
 Current development version: 0.1.0
 
-Latest recorded verification (2026-10-24; Linux x86_64, CPython
-3.11.17, Qiskit 2.5.2, pytest 9.1.1; command `python -m pytest tests -v`):
+Recorded verification runs (2026-10-24; command `python -m pytest tests -v`;
+3 test files containing 80 test functions, 80 test cases collected):
 
-- 3 test files containing 80 test functions
-- 80 test cases collected by pytest
-- 80 passed, 0 failed, 0 skipped
+- Windows AMD64, CPython 3.11.8, Qiskit 2.5.2, pytest 9.1.1
+  (project `.venv`): 80 passed, 0 failed, 0 skipped
+- Linux x86_64, CPython 3.11.17, Qiskit 2.5.2, pytest 9.1.1:
+  80 passed, 0 failed, 0 skipped
 
-These numbers describe one recorded run, not a permanent guarantee.
-The suite has not yet been re-run in the Windows project environment.
+These numbers describe recorded runs, not a permanent guarantee.
 
 ## Development Progress
 

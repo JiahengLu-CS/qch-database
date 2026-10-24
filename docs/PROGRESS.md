@@ -486,9 +486,15 @@ but currently separate development efforts.
 
 ### Verification
 - Command: `python -m pytest tests -v`.
-- Environment: Linux x86_64, CPython 3.11.17, Qiskit 2.5.2, pytest 9.1.1.
-- Result: 3 test files, 80 test functions, 80 collected, 80 passed.
-- Not yet re-run in the Windows project environment.
+- Result: 3 test files, 80 test functions, 80 collected.
+- Windows AMD64, CPython 3.11.8, Qiskit 2.5.2, pytest 9.1.1 (project
+  `.venv`): 80 passed, 0 failed, 0 skipped.
+- Linux x86_64, CPython 3.11.17, Qiskit 2.5.2, pytest 9.1.1:
+  80 passed, 0 failed, 0 skipped.
+- The Windows demo (`examples/pass_sequence_demo.py`, QFT 7-qubit opt0
+  circuit) reproduced the Linux step metrics exactly (gate count
+  142 -> 130, depth 55 -> 53 after Optimize1qGatesDecomposition), and
+  the step 2 circuit was restored from QPY through a read-only connection.
 - The original `mqt_bench_1000_test.db` was only read (one circuit was
   copied into a separate demo database); it was not migrated or indexed.
 
@@ -501,6 +507,5 @@ but currently separate development efforts.
 - No cross-run snapshot deduplication.
 
 ### Next Steps
-- Re-run the test suite in the Windows project environment.
 - Decide whether to migrate a copy of the 1000-circuit database.
 - Add more passes and batch experiments over pass orders.
