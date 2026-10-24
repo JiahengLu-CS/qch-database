@@ -1366,3 +1366,164 @@ tdg q[0];
     assert db.get_features("nonexistent") is None
 
     db.close()
+
+def test_benchmark_schema(tmp_path):
+    import sqlite3
+
+    db_path = tmp_path / "benchmark.db"
+    db = QCHDatabase(str(db_path))
+
+    try:
+        conn = db.connection
+
+        # Verify benchmark tables exist.
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+
+        assert "benchmarks" in tables
+        assert "benchmark_circuits" in tables
+
+        # Create one benchmark and one circuit.
+        with conn:
+            conn.execute(
+                """
+                INSERT INTO benchmarks (name, source_url, description)
+                VALUES (?, ?, ?)
+                """,
+                ("TestBench", "https://example.org", "Test benchmark")
+            )
+
+            conn.execute(
+                """
+                INSERT INTO circuits (name, qasm)
+                VALUES (?, ?)
+                """,
+                ("test_circuit", "OPENQASM 2.0;")
+            )
+
+            conn.execute(
+                """
+                INSERT INTO benchmark_circuits
+                    (benchmark_id, circuit_id)
+                VALUES (1, 1)
+                """
+            )
+
+        # Verify the relationship.
+        count = conn.execute(
+            "SELECT COUNT(*) FROM benchmark_circuits"
+        ).fetchone()[0]
+
+        assert count == 1
+
+        # Duplicate relationships must be rejected.
+        import pytest
+
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                """
+                INSERT INTO benchmark_circuits
+                    (benchmark_id, circuit_id)
+                VALUES (1, 1)
+                """
+            )
+
+    finally:
+        db.connection.close()
+
+
+def test_add_benchmark(tmp_path):
+    import sqlite3
+    import pytest
+
+    db = QCHDatabase(str(tmp_path / "benchmark_api.db"))
+
+    try:
+        benchmark_id = db.add_benchmark(
+            name="MQTBench",
+            source_url="https://www.cda.cit.tum.de/mqtbench/",
+            description="Quantum circuit benchmark collection"
+        )
+
+        assert isinstance(benchmark_id, int)
+        assert benchmark_id > 0
+
+        row = db.connection.execute(
+            """
+            SELECT name, source_url, description
+            FROM benchmarks
+            WHERE id = ?
+            """,
+            (benchmark_id,)
+        ).fetchone()
+
+        assert row == (
+            "MQTBench",
+            "https://www.cda.cit.tum.de/mqtbench/",
+            "Quantum circuit benchmark collection"
+        )
+
+        # Duplicate benchmark names are not allowed.
+        with pytest.raises(sqlite3.IntegrityError):
+            db.add_benchmark("MQTBench")
+
+        # Empty benchmark names are not allowed.
+        with pytest.raises(ValueError):
+            db.add_benchmark("")
+
+        with pytest.raises(ValueError):
+            db.add_benchmark("   ")
+
+    finally:
+        db.connection.close()
+
+def test_add_circuit_to_benchmark(tmp_path):
+    import sqlite3
+    import pytest
+
+    db = QCHDatabase(str(tmp_path / "benchmark_link.db"))
+
+    try:
+        db.add_benchmark("MQTBench")
+
+        with db.connection:
+            db.connection.execute(
+                """
+                INSERT INTO circuits (name, qasm)
+                VALUES (?, ?)
+                """,
+                ("ghz3", "OPENQASM 2.0;")
+            )
+
+        # Associate the circuit with MQTBench.
+        db.add_circuit_to_benchmark("MQTBench", "ghz3")
+
+        row = db.connection.execute(
+            """
+            SELECT b.name, c.name
+            FROM benchmark_circuits bc
+            JOIN benchmarks b ON b.id = bc.benchmark_id
+            JOIN circuits c ON c.id = bc.circuit_id
+            """
+        ).fetchone()
+
+        assert row == ("MQTBench", "ghz3")
+
+        # Duplicate associations must be rejected.
+        with pytest.raises(sqlite3.IntegrityError):
+            db.add_circuit_to_benchmark("MQTBench", "ghz3")
+
+        # Missing benchmark.
+        with pytest.raises(ValueError):
+            db.add_circuit_to_benchmark("UnknownBench", "ghz3")
+
+        # Missing circuit.
+        with pytest.raises(ValueError):
+            db.add_circuit_to_benchmark("MQTBench", "unknown_circuit")
+
+    finally:
+        db.connection.close()

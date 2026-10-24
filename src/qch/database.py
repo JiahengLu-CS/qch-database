@@ -92,6 +92,27 @@ class QCHDatabase:
                     )
         );
 
+
+            CREATE TABLE IF NOT EXISTS benchmarks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                source_url TEXT,
+                description TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS benchmark_circuits (
+                benchmark_id INTEGER NOT NULL,
+                circuit_id INTEGER NOT NULL,
+
+                PRIMARY KEY (benchmark_id, circuit_id),
+
+                FOREIGN KEY (benchmark_id)
+                    REFERENCES benchmarks(id),
+
+                FOREIGN KEY (circuit_id)
+                    REFERENCES circuits(id)
+            );
+
         """)
 
       # Safely migrate existing databases.
@@ -109,6 +130,55 @@ class QCHDatabase:
                 )
 
         self.connection.commit()
+
+
+    def add_benchmark(self, name, source_url=None, description=None):
+        """Create a benchmark and return its database ID."""
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Benchmark name must not be empty")
+
+        with self.connection:
+            cursor = self.connection.execute(
+                """
+                INSERT INTO benchmarks (name, source_url, description)
+                VALUES (?, ?, ?)
+                """,
+                (name, source_url, description)
+            )
+
+        return cursor.lastrowid
+
+    def add_circuit_to_benchmark(self, benchmark_name, circuit_name):
+        """Associate an existing circuit with an existing benchmark."""
+        with self.connection:
+            benchmark = self.connection.execute(
+                "SELECT id FROM benchmarks WHERE name = ?",
+                (benchmark_name,)
+            ).fetchone()
+
+            if benchmark is None:
+                raise ValueError(
+                    f"Benchmark not found: {benchmark_name}"
+                )
+
+            circuit = self.connection.execute(
+                "SELECT id FROM circuits WHERE name = ?",
+                (circuit_name,)
+            ).fetchone()
+
+            if circuit is None:
+                raise ValueError(
+                    f"Circuit not found: {circuit_name}"
+                )
+
+            self.connection.execute(
+                """
+                INSERT INTO benchmark_circuits
+                    (benchmark_id, circuit_id)
+                VALUES (?, ?)
+                """,
+                (benchmark[0], circuit[0])
+            )
 
     def add_logical_circuit(self, name, description=None):
         """Create a logical circuit and return its ID."""
