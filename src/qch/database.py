@@ -4,6 +4,8 @@ from pathlib import Path
 
 from qiskit import QuantumCircuit
 
+from .migrations import GATES_CIRCUIT_ID_INDEX_SQL
+
 
 class QCHDatabase:
     """A lightweight SQLite database for quantum circuits."""
@@ -15,6 +17,11 @@ class QCHDatabase:
         self._create_tables()
 
     def _create_tables(self):
+        gates_table_existed = self.connection.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'gates'"
+        ).fetchone() is not None
+
         self.connection.executescript("""
             CREATE TABLE IF NOT EXISTS circuits (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,6 +135,13 @@ class QCHDatabase:
                 self.connection.execute(
                     f"ALTER TABLE features ADD COLUMN {column} INTEGER"
                 )
+
+        # A newly created gates table gets its circuit_id index right
+        # away. Existing gates tables are never indexed implicitly here,
+        # because building the index on a large table can take long;
+        # use the explicit migration in qch.migrations instead.
+        if not gates_table_existed:
+            self.connection.execute(GATES_CIRCUIT_ID_INDEX_SQL)
 
         self.connection.commit()
 
@@ -277,6 +291,8 @@ class QCHDatabase:
                 "num_qubits": row[3],
                 "gate_count": row[4],
                 "depth": row[5],
+                "two_qubit_gate_count": row[6],
+                "t_count": row[7],
         }
             for row in rows
         ]

@@ -8,6 +8,15 @@ version = "0.1.0"
 description = "An embedded database for quantum circuit management"
 requires-python = ">=3.11"
 readme = "README.md"
+# Only these versions have been verified (2026-10-24).
+dependencies = [
+    "qiskit==2.5.2",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==9.1.1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

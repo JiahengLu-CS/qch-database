@@ -453,3 +453,54 @@ but currently separate development efforts.
 - Review and commit implementation and tests to GitHub.
 - Improve resource metric semantics and query behavior for incomplete historical data.
 - Extend QCH benchmark ingestion and execution provenance.
+
+
+## Optimization Pass Sequences and Maintenance Fixes (2026-10-24)
+
+### Implemented
+- Added `qch.optimization`: run an ordered sequence of whitelisted Qiskit
+  passes (InverseCancellation, Optimize1qGatesDecomposition,
+  RemoveIdentityEquivalent) on a stored circuit in one PassManager, with
+  one pass instance per sequence position (A -> B -> A supported).
+- Recorded step 0 and every step: QPY snapshot (authoritative, verified by
+  round trip), optional QASM 2 text, representation fingerprint, `changed`
+  flag, snapshot reuse for unchanged steps, metrics, parameters, status,
+  errors, and separately measured timings.
+- Added new tables `qch_schema_components`, `circuit_snapshots`,
+  `optimization_runs`, `optimization_steps` (schema version 1, created
+  lazily, incompatible structures rejected).
+- Separated pass failures (`PASS_FAILED`, later steps `NOT_RUN`) from
+  recording failures (`RECORDING_FAILED`, `RecordingError`).
+- Added read-only query functions and `open_readonly()`.
+- Added `examples/pass_sequence_demo.py` and example sequences.
+- Added `docs/OPTIMIZATION_RUNS.md`.
+
+### Fixed
+- `list_versions()` now returns `two_qubit_gate_count` and `t_count`,
+  which it already queried; missing values stay `None`.
+- Added `idx_gates_circuit_id`: created automatically together with a new
+  `gates` table; existing databases are migrated only explicitly with
+  `python -m qch.migrations gates-circuit-id-index` (backup via the SQLite
+  backup API, no overwrite, existing-file check, dry run).
+- Updated the outdated test count in the README.
+
+### Verification
+- Command: `python -m pytest tests -v`.
+- Environment: Linux x86_64, CPython 3.11.17, Qiskit 2.5.2, pytest 9.1.1.
+- Result: 3 test files, 80 test functions, 80 collected, 80 passed.
+- Not yet re-run in the Windows project environment.
+- The original `mqt_bench_1000_test.db` was only read (one circuit was
+  copied into a separate demo database); it was not migrated or indexed.
+
+### Known Limitations
+- Only three passes; no permutations, batch runs, web UI, other compilers,
+  or target gate set conversion.
+- MQT Bench `opaque ecr` is parsed as a generic opaque Gate, so
+  InverseCancellation does not cancel these gates.
+- `changed` is representation-based, not semantic equivalence.
+- No cross-run snapshot deduplication.
+
+### Next Steps
+- Re-run the test suite in the Windows project environment.
+- Decide whether to migrate a copy of the 1000-circuit database.
+- Add more passes and batch experiments over pass orders.

@@ -1,0 +1,8 @@
+[
+  {"name": "Optimize1qGatesDecomposition",
+   "params": {"basis": ["rz", "sx", "x", "cx"]}},
+  {"name": "InverseCancellation"},
+  {"name": "Optimize1qGatesDecomposition",
+   "params": {"basis": ["rz", "sx", "x", "cx"]}},
+  {"name": "RemoveIdentityEquivalent"}
+]
