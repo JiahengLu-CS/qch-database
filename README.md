@@ -27,9 +27,10 @@ Recorded verification runs (command `python -m pytest tests -v`):
 
 - 2026-11-05, after adding six passes (4 test files, 96 test functions,
   118 test cases collected):
+  - Windows AMD64, CPython 3.11.8, Qiskit 2.5.2, pytest 9.1.1
+    (project `.venv`, 2026-11-14): 118 passed, 0 failed, 0 skipped
   - Linux x86_64, CPython 3.11.17, Qiskit 2.5.2, pytest 9.1.1:
     118 passed, 0 failed, 0 skipped
-  - Not yet re-run on Windows.
 - 2026-10-24 (3 test files, 80 test functions, 80 test cases collected):
   - Windows AMD64, CPython 3.11.8, Qiskit 2.5.2, pytest 9.1.1
     (project `.venv`): 80 passed, 0 failed, 0 skipped

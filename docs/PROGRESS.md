@@ -531,9 +531,14 @@ but currently separate development efforts.
 
 ### Verification
 - Command: `python -m pytest tests -v`.
-- Linux x86_64, CPython 3.11.17, Qiskit 2.5.2, pytest 9.1.1: 4 test files,
-  96 test functions, 118 collected, 118 passed.
-- Not yet re-run on Windows.
+- 4 test files, 96 test functions, 118 collected.
+- Windows AMD64, CPython 3.11.8, Qiskit 2.5.2, pytest 9.1.1 (project
+  `.venv`, 2026-11-14): 118 passed, 0 failed, 0 skipped.
+- Linux x86_64, CPython 3.11.17, Qiskit 2.5.2, pytest 9.1.1: 118 passed.
+- Windows manual acceptance (2026-11-14): `commutation_ibm.json` on the
+  7-qubit QFT circuit in a new demo database reproduced the Linux step
+  metrics exactly (142 -> 130 -> 115 gates, depth 55 -> 53 -> 48), and the
+  step 3 circuit was restored from QPY through a read-only connection.
 - Demo on the 7-qubit QFT circuit (IBM native gates): the new sequence
   `commutation_ibm.json` reduced the gate count from 142 to 115 and the
   depth from 55 to 48 (the earlier `ic_o1q_ic_ibm.json` reached 130 and 53);
@@ -546,5 +551,4 @@ but currently separate development efforts.
   the most effective pass on the QFT example.
 
 ### Next Steps
-- Re-run the test suite on Windows.
 - Add a batch runner for pass-order experiments over a set of circuits.
