@@ -552,3 +552,62 @@ but currently separate development efforts.
 
 ### Next Steps
 - Add a batch runner for pass-order experiments over a set of circuits.
+
+
+## Pass Order Acceptance: A -> B versus B -> A (2026-11-14)
+
+### Purpose
+- Accept the first-stage multi-pass optimization feature with two pass
+  orders applied to the same stored input. The existing executor
+  (`qch.optimization.run_pass_sequence`) was reused; no core code changed.
+
+### Setup
+- Circuit `pass_order_demo_3q`: 3 qubits, no measurements, 10 gates
+  (4 `cx`, 3 `h`, `sdg`, `t`, `z`), depth 7; stored once in a new
+  temporary SQLite database.
+- A = `CommutativeCancellation` with `basis_gates = [rz, sx, x, cx]`.
+- B = `Optimize1qGatesDecomposition` with `basis = [rz, sx, x, cx]`.
+- New script `examples/pass_order_acceptance.py`: `run` writes a new
+  database and runs both orders; `verify` runs in a separate process with
+  a read-only connection, restores every step from QPY, recomputes its
+  metrics, and checks equivalence with the input unitary.
+
+### Results (Linux x86_64, CPython 3.11.17, Qiskit 2.5.2)
+
+| Order | Step | Pass | Gates | 2q | Depth | Pass time (ms) |
+|---|---|---|---|---|---|---|
+| A -> B | 0 | input | 10 | 4 | 7 | - |
+| A -> B | 1 | CommutativeCancellation | 7 | 2 | 5 | 2.043 |
+| A -> B | 2 | Optimize1qGatesDecomposition | 13 | 2 | 9 | 0.444 |
+| B -> A | 0 | input | 10 | 4 | 7 | - |
+| B -> A | 1 | Optimize1qGatesDecomposition | 16 | 4 | 11 | 0.188 |
+| B -> A | 2 | CommutativeCancellation | 11 | 2 | 8 | 0.208 |
+
+- The two orders produce different final circuits; B -> A ends with fewer
+  gates (11 vs 13) and lower depth (8 vs 9), with the same two-qubit gate
+  count (2). Both final circuits have the same unitary as the input up to
+  global phase.
+- Cause: CommutativeCancellation merges Z rotations across CX controls.
+  When B runs first, H gates become `rz-sx-rz`, so their outer `rz` gates
+  can be merged with neighboring Z rotations by A; when A runs first, H is
+  not a Z rotation and these merges are not possible.
+- Timings are single measurements and include first-call effects; they
+  are not a performance comparison.
+
+### Verification
+- `verify` in a separate process: restored metrics equal stored metrics
+  for all six steps, every pass step has a pass time, both finals are
+  equivalent to the input, the database file is unchanged by `verify`.
+- New tests `tests/test_pass_order_acceptance.py` (6 tests): both orders
+  from the same input, run and verify in separate processes, restored
+  intermediate metrics, A -> B -> A records both A steps separately, and
+  earlier steps remain queryable after an injected failure.
+- Command `python -m pytest tests -v`: 5 test files, 102 test functions,
+  124 collected, 124 passed, 0 failed, 0 skipped (Linux x86_64, CPython
+  3.11.17, Qiskit 2.5.2, pytest 9.1.1).
+- Not yet re-run on Windows.
+
+### Open Items
+- Re-run the tests and the acceptance script on Windows.
+- Batch runs over several sequences and permutation generation are not
+  implemented (out of scope for the first stage).
