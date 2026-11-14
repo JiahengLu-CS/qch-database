@@ -12,8 +12,13 @@ This module adds a first, deliberately narrow, experiment facility to QCH:
 
 Scope of version 1 (see ``docs/OPTIMIZATION_RUNS.md``):
 
-* Supported passes: ``InverseCancellation``,
-  ``Optimize1qGatesDecomposition`` and ``RemoveIdentityEquivalent``.
+* Supported passes (``PASS_REGISTRY``): ``InverseCancellation``,
+  ``Optimize1qGatesDecomposition``, ``RemoveIdentityEquivalent``,
+  ``CommutativeCancellation``, ``CommutativeInverseCancellation``,
+  ``Optimize1qGatesSimpleCommutation``, ``Optimize1qGates``,
+  ``RemoveDiagonalGatesBeforeMeasure`` and ``RemoveResetInZeroState``.
+  ``RemoveDiagonalGatesBeforeMeasure`` only preserves measurement outcomes
+  (see :func:`pass_equivalence`); all others return an equivalent circuit.
 * No implicit ``transpile`` and no target gate set conversion between or
   after steps.
 * Supported circuit content: Qiskit standard-library gates, opaque gates
@@ -84,9 +89,15 @@ from qiskit.synthesis.one_qubit.one_qubit_decompose import (
 )
 from qiskit.transpiler import PassManager
 from qiskit.transpiler.passes import (
+    CommutativeCancellation,
+    CommutativeInverseCancellation,
     InverseCancellation,
+    Optimize1qGates,
     Optimize1qGatesDecomposition,
+    Optimize1qGatesSimpleCommutation,
+    RemoveDiagonalGatesBeforeMeasure,
     RemoveIdentityEquivalent,
+    RemoveResetInZeroState,
 )
 
 
@@ -378,39 +389,39 @@ def _build_inverse_cancellation(params):
     )
 
 
-def _normalize_optimize_1q(params):
-    _check_keys(
-        "Optimize1qGatesDecomposition",
-        params,
-        {"basis"},
-        required=("basis",),
-    )
-    basis = params["basis"]
+def _validate_gate_name_list(pass_name, key, names):
+    """Validate a non-empty list of distinct standard gate names."""
     if (
-        not isinstance(basis, list)
-        or not basis
-        or not all(isinstance(name, str) and name for name in basis)
+        not isinstance(names, list)
+        or not names
+        or not all(isinstance(name, str) and name for name in names)
     ):
         raise PassConfigError(
-            "Optimize1qGatesDecomposition: basis must be a non-empty list "
-            "of gate names"
+            f"{pass_name}: {key} must be a non-empty list of gate names"
         )
-    if len(set(basis)) != len(basis):
-        raise PassConfigError(
-            "Optimize1qGatesDecomposition: basis contains duplicate names"
-        )
+    if len(set(names)) != len(names):
+        raise PassConfigError(f"{pass_name}: {key} contains duplicate names")
     unknown = [
         name
-        for name in basis
+        for name in names
         if name not in _STANDARD_GATES
         or name in _REJECTED_STANDARD_NAMES
         or not isinstance(_STANDARD_GATES[name], Gate)
     ]
     if unknown:
         raise PassConfigError(
-            f"Optimize1qGatesDecomposition: unknown or non-gate basis "
-            f"names {unknown}"
+            f"{pass_name}: unknown or non-gate {key} names {unknown}"
         )
+    return list(names)
+
+
+def _check_bool(pass_name, key, value):
+    if not isinstance(value, bool):
+        raise PassConfigError(f"{pass_name}: {key} must be true or false")
+    return value
+
+
+def _require_euler_basis(pass_name, basis):
     basis_set = set(basis)
     usable = [
         euler
@@ -419,15 +430,108 @@ def _normalize_optimize_1q(params):
     ]
     if not usable:
         raise PassConfigError(
-            "Optimize1qGatesDecomposition: the basis does not contain any "
-            "complete one-qubit Euler basis; known Euler bases are "
-            f"{ONE_QUBIT_EULER_BASIS_GATES}"
+            f"{pass_name}: the basis does not contain any complete one-qubit "
+            f"Euler basis; known Euler bases are {ONE_QUBIT_EULER_BASIS_GATES}"
         )
-    return {"basis": list(basis)}
+
+
+def _normalize_optimize_1q(params):
+    name = "Optimize1qGatesDecomposition"
+    _check_keys(name, params, {"basis"}, required=("basis",))
+    basis = _validate_gate_name_list(name, "basis", params["basis"])
+    _require_euler_basis(name, basis)
+    return {"basis": basis}
 
 
 def _build_optimize_1q(params):
     return Optimize1qGatesDecomposition(basis=list(params["basis"]))
+
+
+def _normalize_optimize_1q_simple_commutation(params):
+    name = "Optimize1qGatesSimpleCommutation"
+    _check_keys(
+        name, params, {"basis", "run_to_completion"}, required=("basis",)
+    )
+    basis = _validate_gate_name_list(name, "basis", params["basis"])
+    _require_euler_basis(name, basis)
+    run_to_completion = _check_bool(
+        name, "run_to_completion", params.get("run_to_completion", False)
+    )
+    return {"basis": basis, "run_to_completion": run_to_completion}
+
+
+def _build_optimize_1q_simple_commutation(params):
+    return Optimize1qGatesSimpleCommutation(
+        basis=list(params["basis"]),
+        run_to_completion=params["run_to_completion"],
+    )
+
+
+def _normalize_optimize_1q_gates(params):
+    name = "Optimize1qGates"
+    _check_keys(name, params, {"basis"}, required=("basis",))
+    basis = _validate_gate_name_list(name, "basis", params["basis"])
+    if not {"u", "u3"} & set(basis):
+        raise PassConfigError(
+            f"{name}: basis must contain 'u' or 'u3'; this legacy pass only "
+            "rewrites runs of u1, u2, u3, u and p gates and needs one of these "
+            "to express a general single-qubit gate"
+        )
+    return {"basis": basis}
+
+
+def _build_optimize_1q_gates(params):
+    return Optimize1qGates(basis=list(params["basis"]))
+
+
+def _normalize_commutative_cancellation(params):
+    name = "CommutativeCancellation"
+    _check_keys(name, params, {"basis_gates"}, required=("basis_gates",))
+    basis_gates = _validate_gate_name_list(
+        name, "basis_gates", params["basis_gates"]
+    )
+    return {"basis_gates": basis_gates}
+
+
+def _build_commutative_cancellation(params):
+    return CommutativeCancellation(basis_gates=list(params["basis_gates"]))
+
+
+_MAX_MATRIX_QUBITS = 8
+
+
+def _normalize_commutative_inverse_cancellation(params):
+    name = "CommutativeInverseCancellation"
+    _check_keys(name, params, {"matrix_based", "max_qubits"})
+    matrix_based = _check_bool(
+        name, "matrix_based", params.get("matrix_based", False)
+    )
+    max_qubits = params.get("max_qubits", 4)
+    if (
+        isinstance(max_qubits, bool)
+        or not isinstance(max_qubits, int)
+        or not 1 <= max_qubits <= _MAX_MATRIX_QUBITS
+    ):
+        raise PassConfigError(
+            f"{name}: max_qubits must be an integer between 1 and "
+            f"{_MAX_MATRIX_QUBITS}"
+        )
+    return {"matrix_based": matrix_based, "max_qubits": max_qubits}
+
+
+def _build_commutative_inverse_cancellation(params):
+    return CommutativeInverseCancellation(
+        matrix_based=params["matrix_based"],
+        max_qubits=params["max_qubits"],
+    )
+
+
+def _normalize_no_params(pass_name):
+    def normalize(params):
+        _check_keys(pass_name, params, set())
+        return {}
+
+    return normalize
 
 
 def _normalize_remove_identity(params):
@@ -455,10 +559,20 @@ def _build_remove_identity(params):
     )
 
 
+#: The pass returns an equivalent circuit (same operation up to a global
+#: phase, including measurements and resets).
+EQUIVALENCE_EXACT = "exact"
+
+#: The pass only preserves the outcome distribution of the circuit's
+#: computational-basis measurements; the unitary may change.
+EQUIVALENCE_MEASUREMENT = "measurement_outcomes"
+
+
 @dataclass(frozen=True)
 class _RegistryEntry:
     normalize: Callable[[dict], dict]
     build: Callable[[dict], Any]
+    equivalence: str = EQUIVALENCE_EXACT
 
 
 #: The verified pass whitelist. Only these passes can be executed.
@@ -472,7 +586,41 @@ PASS_REGISTRY = {
     "RemoveIdentityEquivalent": _RegistryEntry(
         _normalize_remove_identity, _build_remove_identity
     ),
+    "CommutativeCancellation": _RegistryEntry(
+        _normalize_commutative_cancellation, _build_commutative_cancellation
+    ),
+    "CommutativeInverseCancellation": _RegistryEntry(
+        _normalize_commutative_inverse_cancellation,
+        _build_commutative_inverse_cancellation,
+    ),
+    "Optimize1qGatesSimpleCommutation": _RegistryEntry(
+        _normalize_optimize_1q_simple_commutation,
+        _build_optimize_1q_simple_commutation,
+    ),
+    "Optimize1qGates": _RegistryEntry(
+        _normalize_optimize_1q_gates, _build_optimize_1q_gates
+    ),
+    "RemoveDiagonalGatesBeforeMeasure": _RegistryEntry(
+        _normalize_no_params("RemoveDiagonalGatesBeforeMeasure"),
+        lambda params: RemoveDiagonalGatesBeforeMeasure(),
+        EQUIVALENCE_MEASUREMENT,
+    ),
+    "RemoveResetInZeroState": _RegistryEntry(
+        _normalize_no_params("RemoveResetInZeroState"),
+        lambda params: RemoveResetInZeroState(),
+    ),
 }
+
+
+def pass_equivalence(pass_name):
+    """Return the equivalence guarantee of a registered pass.
+
+    ``"exact"`` or ``"measurement_outcomes"``; see the module constants.
+    """
+    try:
+        return PASS_REGISTRY[pass_name].equivalence
+    except KeyError:
+        raise PassConfigError(f"Unsupported pass {pass_name!r}") from None
 
 
 def _json_roundtrip(value, what):
@@ -1937,6 +2085,8 @@ def load_step_circuit(db_or_connection, run_id, step_index):
 
 __all__ = [
     "CircuitNotFoundError",
+    "EQUIVALENCE_EXACT",
+    "EQUIVALENCE_MEASUREMENT",
     "EXECUTION_MODE",
     "ExecutionAbortedError",
     "METRICS_VERSION",
@@ -1960,6 +2110,7 @@ __all__ = [
     "list_optimization_steps",
     "load_step_circuit",
     "open_readonly",
+    "pass_equivalence",
     "prepare_pass_sequence",
     "representation_fingerprint",
     "run_pass_sequence",

@@ -509,3 +509,42 @@ but currently separate development efforts.
 ### Next Steps
 - Decide whether to migrate a copy of the 1000-circuit database.
 - Add more passes and batch experiments over pass orders.
+
+
+## Six Additional Optimization Passes (2026-11-05)
+
+### Implemented
+- Added six passes to the `qch.optimization` whitelist (nine in total):
+  `CommutativeCancellation`, `CommutativeInverseCancellation`,
+  `Optimize1qGatesSimpleCommutation`, `Optimize1qGates`,
+  `RemoveDiagonalGatesBeforeMeasure`, and `RemoveResetInZeroState`.
+- These six are part of the 16 passes selected in the pass-order study
+  used as a reference; they need no change to the supported circuit scope.
+- Every pass has validated JSON parameters; defaults are written into the
+  stored step parameters. Gate-set parameters that change the output
+  (`basis`, `basis_gates`) are required and never inferred.
+- Added `pass_equivalence()`: `RemoveDiagonalGatesBeforeMeasure` only
+  preserves measurement outcomes; all other passes return an equivalent
+  circuit up to a global phase. No database schema change.
+- Added `examples/sequences/commutation_ibm.json`; widened the pass column
+  of the demo output.
+
+### Verification
+- Command: `python -m pytest tests -v`.
+- Linux x86_64, CPython 3.11.17, Qiskit 2.5.2, pytest 9.1.1: 4 test files,
+  96 test functions, 118 collected, 118 passed.
+- Not yet re-run on Windows.
+- Demo on the 7-qubit QFT circuit (IBM native gates): the new sequence
+  `commutation_ibm.json` reduced the gate count from 142 to 115 and the
+  depth from 55 to 48 (the earlier `ic_o1q_ic_ibm.json` reached 130 and 53);
+  the final circuit was checked to have the same unitary as the input.
+
+### Observations
+- `Optimize1qGates` only rewrites `u1`, `u2`, `u3`, `u` and `p` gates, so it
+  leaves IBM-native MQT Bench circuits unchanged.
+- `CommutativeCancellation` merges Z rotations across CX controls and was
+  the most effective pass on the QFT example.
+
+### Next Steps
+- Re-run the test suite on Windows.
+- Add a batch runner for pass-order experiments over a set of circuits.

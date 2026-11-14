@@ -14,7 +14,8 @@ managing, querying, comparing, and optimizing quantum circuits.
 - Sorting by qubit count, gate count, and depth
 - Automated testing with pytest
 - Ordered Qiskit optimization pass sequences with recorded step
-  snapshots, metrics, and timings (`qch.optimization`)
+  snapshots, metrics, and timings (`qch.optimization`), with nine
+  whitelisted passes
 - Explicit `gates(circuit_id)` index migration for existing databases
   (`python -m qch.migrations`)
 
@@ -22,13 +23,18 @@ managing, querying, comparing, and optimizing quantum circuits.
 
 Current development version: 0.1.0
 
-Recorded verification runs (2026-10-24; command `python -m pytest tests -v`;
-3 test files containing 80 test functions, 80 test cases collected):
+Recorded verification runs (command `python -m pytest tests -v`):
 
-- Windows AMD64, CPython 3.11.8, Qiskit 2.5.2, pytest 9.1.1
-  (project `.venv`): 80 passed, 0 failed, 0 skipped
-- Linux x86_64, CPython 3.11.17, Qiskit 2.5.2, pytest 9.1.1:
-  80 passed, 0 failed, 0 skipped
+- 2026-11-05, after adding six passes (4 test files, 96 test functions,
+  118 test cases collected):
+  - Linux x86_64, CPython 3.11.17, Qiskit 2.5.2, pytest 9.1.1:
+    118 passed, 0 failed, 0 skipped
+  - Not yet re-run on Windows.
+- 2026-10-24 (3 test files, 80 test functions, 80 test cases collected):
+  - Windows AMD64, CPython 3.11.8, Qiskit 2.5.2, pytest 9.1.1
+    (project `.venv`): 80 passed, 0 failed, 0 skipped
+  - Linux x86_64, CPython 3.11.17, Qiskit 2.5.2, pytest 9.1.1:
+    80 passed, 0 failed, 0 skipped
 
 These numbers describe recorded runs, not a permanent guarantee.
 

@@ -1,0 +1,9 @@
+[
+  {"name": "CommutativeInverseCancellation"},
+  {"name": "Optimize1qGatesSimpleCommutation",
+   "params": {"basis": ["rz", "sx", "x", "cx"], "run_to_completion": true}},
+  {"name": "CommutativeCancellation",
+   "params": {"basis_gates": ["rz", "sx", "x", "cx"]}},
+  {"name": "RemoveIdentityEquivalent"},
+  {"name": "CommutativeInverseCancellation"}
+]

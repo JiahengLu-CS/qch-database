@@ -62,7 +62,7 @@ def print_run(run):
               f"{run['error_type']}: {run['error_message']}")
     print()
     header = (
-        f"{'step':>4} {'pass':<29} {'status':<16} {'chg':>3} {'snap':>4} "
+        f"{'step':>4} {'pass':<32} {'status':<16} {'chg':>3} {'snap':>4} "
         f"{'qub':>3} {'1q':>5} {'2q':>5} {'3q+':>4} {'meas':>4} "
         f"{'bar':>4} {'gates':>6} {'depth':>5} {'pass_ms':>9} "
         f"{'qiskit_ms':>9} {'metric_ms':>9} {'serial_ms':>9} {'db_ms':>8}"
@@ -72,7 +72,7 @@ def print_run(run):
     for step in run["steps"]:
         print(
             f"{step['step_index']:>4} "
-            f"{(step['pass_name'] or '(input)'):<29} "
+            f"{(step['pass_name'] or '(input)'):<32} "
             f"{step['status']:<16} {_value(step['changed']):>3} "
             f"{_value(step['snapshot_id']):>4} "
             f"{_value(step['num_qubits']):>3} "

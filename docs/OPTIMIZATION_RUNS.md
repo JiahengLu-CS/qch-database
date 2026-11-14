@@ -65,10 +65,29 @@ mappings; there is no `eval` and no dynamic import.
 | `InverseCancellation` | `gates_to_cancel`: `null` (Qiskit default list) or a list of self-inverse gate names (`x y z h cx cy cz ecr swap ch ccx ccz rccx cswap c3x`) and two-name inverse pairs (`[t, tdg]`, `[s, sdg]`, `[sx, sxdg]`, `[cs, csdg]`, either order). `run_default`: boolean, default `false`. |
 | `Optimize1qGatesDecomposition` | `basis` (required): non-empty list of standard gate names that contains at least one complete one-qubit Euler basis (for example `rz, sx, x` or `u`). The basis is never inferred from the circuit. An explicit basis does NOT mean the whole output circuit was checked against a target gate set. |
 | `RemoveIdentityEquivalent` | `approximation_degree`: number in (0, 1], default `1.0`. Target-based approximation (`null`) is not supported. |
+| `CommutativeCancellation` | `basis_gates` (required): non-empty list of standard gate names. Besides cancelling self-inverse gates across commuting gates, the pass merges Z rotations; `basis_gates` selects the gate used for merged rotations (`rz`, `p` or `u1`), so it is never left to a default. |
+| `CommutativeInverseCancellation` | `matrix_based`: boolean, default `false` (if `true`, inverse pairs are found with matrix checks, also up to a global phase). `max_qubits`: integer 1 to 8, default `4` (limit for matrix-based checks). |
+| `Optimize1qGatesSimpleCommutation` | `basis` (required): same rules as `Optimize1qGatesDecomposition`. `run_to_completion`: boolean, default `false` (Qiskit default: one optimization round; `true` repeats until nothing changes). |
+| `Optimize1qGates` | `basis` (required): standard gate names that include `u` or `u3`. Legacy pass: it only rewrites runs of `u1`, `u2`, `u3`, `u` and `p` gates, so it leaves IBM-native `rz`/`sx` circuits unchanged. |
+| `RemoveDiagonalGatesBeforeMeasure` | No parameters. Removes diagonal gates directly before final measurements. |
+| `RemoveResetInZeroState` | No parameters. Removes resets on qubits that are still in the initial zero state. |
 
-None of the three passes uses a random seed; `optimization_runs.seed` is
-always `NULL` in version 1. All three declare no required analysis passes
+Equivalence guarantee (`opt.pass_equivalence(name)`):
+
+* `RemoveDiagonalGatesBeforeMeasure` returns `"measurement_outcomes"`: the
+  output has the same computational-basis measurement statistics, but its
+  unitary can differ. Do not compare it with a unitary equivalence check.
+* All other passes return `"exact"`: the output is the same operation up to
+  a global phase.
+
+The guarantee is a property of the pass code version and is not stored per
+step. None of the nine passes uses a random seed; `optimization_runs.seed`
+is always `NULL` in version 1. All nine declare no required analysis passes
 (checked when each instance is built; passes with `requires` are rejected).
+
+Passes that need no parameters still accept an empty `params` object;
+unknown keys are rejected. Defaults are written into `pass_params_json`, so
+every stored step records the exact configuration that was used.
 
 ## Execution semantics
 
@@ -225,7 +244,7 @@ $Demo = ".\demo\pass_sequences_demo.db"
 
 ## Known limitations
 
-* Three passes only; no permutations, batches, web UI, other compilers,
+* Nine passes only; no permutations, batches, web UI, other compilers,
   automatic ordering or target gate set conversion.
 * `changed` is representation-based; a pass that only reorders
   independent instructions would also be reported as changed.
