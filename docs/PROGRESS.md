@@ -1403,3 +1403,75 @@ reaches all three at once.
 - Full regression on Linux after the removal: 14 test files, 232 passed.
   Windows (after deleting tests/test_angle_rounding.py): 232 passed in
   124 s.
+
+## Stage 3B: demo datasets for all 12 circuits
+
+- New `experiments/export_demo_dataset.py --out-dir DIR --output FILE`:
+  exports one experiment as a compact JSON dataset (`schema_version` 2)
+  for the Optimization Results page of the demo repository. For every
+  circuit: baseline, input representation, and for every order the run ID,
+  status, verification, final metrics and the metrics after every step,
+  recomputed from the stored QPY snapshots with
+  `mqt_pass_order.experiment_metrics`. Read-only (SQLite `mode=ro`,
+  experiment.db SHA-256 compared before and after); refuses to write if
+  step 0 differs from the baseline, the last step differs from the
+  recorded final metrics, runs of a circuit have different inputs, or a
+  label is not an order of the pass set. No local paths in the output.
+  `experiments/export_step_metrics.py` (stage 3A) is kept.
+- Exports (Linux x86_64, CPython 3.11.17, Qiskit 2.5.2, from byte-identical
+  copies of the Windows experiment directories): stage 2D
+  (`stage2d_20261114165225`, 72 runs, 13,788 bytes, experiment.db
+  `6238d916...`) and stage 2G (`stage2g_20261115052449`, 1,440 runs,
+  251,188 bytes, experiment.db `4873f3ee...`); both databases unchanged.
+  Stage 2F is not shown in the demo.
+- New `tests/test_export_demo_dataset.py` (synthetic circuits). Full
+  regression on Linux: 15 test files, 233 passed. Windows: not yet re-run.
+- Demo repository: the page now shows all 12 circuits and both pass sets;
+  details in `quantum-circuit-hub/docs/QCH_OPTIMIZATION_RESULTS.md`.
+
+## Stage 4A: circuit optimization API
+
+- New `src/qch/optimize.py`: `optimize_circuit(circuit, objective=...,
+  pass_set=..., search=..., verify=..., db=None, ...)` returns an
+  `OptimizationResult` with the best circuit, ties, Pareto front, all
+  candidates, excluded candidates, baseline and environment. Command line
+  `python -m qch.optimize input.qasm --out best.qasm --report report.json`.
+  Documented in `docs/OPTIMIZE_API.md`.
+- Decisions: default objective two-qubit gates, then depth, then gates
+  (lexicographic, no weighted score); default pass set A, B, C, F, G;
+  nothing is stored unless `db` is given.
+- Search `permutations` (with a prefix cache: 325 pass applications for
+  the 120 orders of five passes), `greedy` and `fixed`
+  (optionally repeated until stable). The translated baseline is a
+  candidate, so the result is never worse than the baseline.
+- Verification `exact` (up to 10 qubits), `sampled` (8 random states, up
+  to 20 qubits), `none`, or `auto`; failed results are excluded.
+- With `db`, every candidate order is recorded with
+  `run_pass_sequence` and checked to be identical to the search result.
+- Check: on the 12 stage 2D/2G MQT Bench circuits the defaults give the
+  same best (2q, depth, gates) as the recorded Linux stage 2G experiment
+  for every circuit; 13.5 s in total without recording.
+- New `tests/test_optimize.py` (31 tests): input forms and rejections,
+  option validation, the prefix cache count, lexicographic ranking, ties
+  and Pareto front, equivalence and measurement mapping of the best
+  circuit, other objectives, JSON report, light/greedy/fixed searches,
+  custom pass mappings, exclusion of a deliberately wrong pass (exact and
+  sampled), sampled versus exact, unverified mode, time limit, recording
+  in a database, nothing written without a database, and the command
+  line. Full regression on Linux: 16 test files, 264 passed. Windows:
+  264 passed in 212 s; `python -m qch.optimize` on a 3-qubit circuit with
+  final measurements: baseline 20/7/15 (gates/2q/depth), best
+  B->G->A->C->F 13/3/9, verified exact, 10 ties, 0.16 s.
+
+## Stage 4B: "Optimize Your Circuit" page in the demo
+
+- `qch.optimize`: `OptimizationResult.best_steps` (metrics after every
+  step of the best order, taken from the prefix cache) and `best_steps`
+  in `to_dict()`; documented in `docs/OPTIMIZE_API.md`; one new test.
+  Full regression on Linux: 265 passed.
+- Demo repository (`quantum-circuit-hub`): new page
+  `pages/Optimize_Circuit.py`. `src/qch_optimizer/` holds byte-identical
+  copies of `qch/optimization.py`, `qch/objectives.py` and
+  `qch/optimize.py` (SHA-256 in `SOURCE.json`; the demo has its own `qch`
+  package, so the optimizer is copied rather than installed). Details in
+  `quantum-circuit-hub/docs/QCH_OPTIMIZE_PAGE.md`.
