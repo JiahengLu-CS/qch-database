@@ -31,6 +31,7 @@ DEFAULT_PARAMS = {
     "InverseCancellation": {},
     "Optimize1qGatesDecomposition": {"basis": IBM_BASIS},
     "RemoveIdentityEquivalent": {},
+    "TwoQubitBlockResynthesis": {"basis_gates": IBM_BASIS},
 }
 
 
@@ -83,7 +84,7 @@ def outcome_distribution(circuit):
 # Registry --------------------------------------------------------------------
 
 
-def test_registry_contains_nine_passes():
+def test_registry_contains_all_passes():
     assert set(opt.PASS_REGISTRY) == set(DEFAULT_PARAMS)
 
 
@@ -291,7 +292,7 @@ def test_defaults_are_recorded_explicitly():
     assert prepared[2].params == {}
 
 
-# All nine passes together ------------------------------------------------------
+# All registered passes together ------------------------------------------------------
 
 MIXED_QASM = (
     "qreg q[3];\ncreg c[3];\n"

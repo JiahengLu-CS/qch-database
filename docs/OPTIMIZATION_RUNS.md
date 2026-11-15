@@ -71,6 +71,7 @@ mappings; there is no `eval` and no dynamic import.
 | `Optimize1qGates` | `basis` (required): standard gate names that include `u` or `u3`. Legacy pass: it only rewrites runs of `u1`, `u2`, `u3`, `u` and `p` gates, so it leaves IBM-native `rz`/`sx` circuits unchanged. |
 | `RemoveDiagonalGatesBeforeMeasure` | No parameters. Removes diagonal gates directly before final measurements. |
 | `RemoveResetInZeroState` | No parameters. Removes resets on qubits that are still in the initial zero state. |
+| `TwoQubitBlockResynthesis` | `basis_gates` (required): standard gate names with a two-qubit gate from `cx`, `cz`, `ecr` and a complete one-qubit Euler basis. QCH composite step, recorded as ONE step: `Collect2qBlocks`, then `ConsolidateBlocks(basis_gates, approximation_degree=1.0)` (replaces a two-qubit block by its unitary when the KAK decomposition needs fewer two-qubit gates or the block uses gates outside the basis), then `UnitarySynthesis(basis_gates, approximation_degree=1.0)`, with one private property set. Exact up to global phase and numerical precision. |
 
 Equivalence guarantee (`opt.pass_equivalence(name)`):
 
@@ -81,9 +82,11 @@ Equivalence guarantee (`opt.pass_equivalence(name)`):
   a global phase.
 
 The guarantee is a property of the pass code version and is not stored per
-step. None of the nine passes uses a random seed; `optimization_runs.seed`
-is always `NULL` in version 1. All nine declare no required analysis passes
-(checked when each instance is built; passes with `requires` are rejected).
+step. None of the registered passes uses a random seed;
+`optimization_runs.seed` is always `NULL` in version 1. All of them declare
+no required analysis passes (checked when each instance is built; passes
+with `requires` are rejected). `TwoQubitBlockResynthesis` runs its analysis
+pass `Collect2qBlocks` internally instead.
 
 Passes that need no parameters still accept an empty `params` object;
 unknown keys are rejected. Defaults are written into `pass_params_json`, so
@@ -241,6 +244,118 @@ $Demo = ".\demo\pass_sequences_demo.db"
 
 `prepare` refuses to overwrite an existing demo database; delete
 `demo\pass_sequences_demo.db` yourself to start over.
+
+## Batch comparison of explicit sequences (`qch.batch`)
+
+`run_sequence_batch(db, circuit_name, sequences)` runs several named pass
+sequences on one stored circuit and returns a `BatchResult`.
+
+```python
+from qch import QCHDatabase, batch
+
+A = {"name": "CommutativeCancellation",
+     "params": {"basis_gates": ["rz", "sx", "x", "cx"]}}
+B = {"name": "Optimize1qGatesDecomposition",
+     "params": {"basis": ["rz", "sx", "x", "cx"]}}
+
+db = QCHDatabase("demo.db")
+result = batch.run_sequence_batch(
+    db, "my_circuit", {"A->B": [A, B], "B->A": [B, A], "A->B->A": [A, B, A]}
+)
+print(result.format_table())
+run_ids = {item.label: item.run_id for item in result.results}
+db.close()
+```
+
+* Each sequence is a normal optimization run (label = sequence label);
+  steps and snapshots are queried with the existing functions and the
+  returned `run_id`. No separate batch object is stored.
+* Every run parses the stored input again; no sequence sees another
+  sequence's output. Order, parameters and repeated steps are kept.
+* All labels, sequences and the input circuit are validated before the
+  first run (`BatchConfigError`, `CircuitNotFoundError`,
+  `UnsupportedCircuitError`); an invalid batch writes nothing.
+* A run with status `PASS_FAILED` is kept and the batch continues. It has
+  no final metrics and is excluded from comparisons.
+* Recording, database and other non-pass failures stop the batch with
+  `BatchExecutionError` (`completed`, `failed_label`, `run_id`, and the
+  original exception as `__cause__`).
+* `deltas` are final minus input for `gate_count`, `two_qubit_gate_count`
+  and `depth`. `best_labels(metric)` compares one metric at a time and keeps
+  ties; there is no combined score.
+* `pass_time_recorded_s` sums the recorded per-step pass times of one run;
+  `None` if nothing was timed, and `pass_time_complete` / `untimed_steps`
+  show missing times. It is not the batch wall time.
+* `summarize_runs(connection, circuit_name, {label: run_id})` rebuilds the
+  comparison read-only, for example after reconnecting with
+  `open_readonly`.
+* Example: `examples/batch_sequence_demo.py` (`demo`, `run`, `show`).
+
+## Bounded permutations of pass configurations (`qch.permutations`)
+
+`preview_permutations(items, max_permutations=24)` lists candidate orders
+without touching any database; `run_permutation_batch(db, circuit_name,
+items, max_permutations=24)` returns `(preview, batch_result)` and runs the
+generated sequences through `qch.batch.run_sequence_batch`.
+
+```python
+from qch import QCHDatabase, permutations
+
+items = {"A": A, "B": B, "C": {"name": "CommutativeInverseCancellation"}}
+print(permutations.preview_permutations(items).format())   # 6 orders
+
+db = QCHDatabase("demo.db")
+preview, result = permutations.run_permutation_batch(db, "my_circuit", items)
+print(result.format_table())
+db.close()
+```
+
+* `items` is `{id: pass_config}` (order kept), a list of `(id, config)`
+  pairs, or a list of `{"id": ..., "pass": ...}`. Identifiers must be
+  unique, non-empty, without surrounding spaces and without `->`. The same
+  pass with different parameters is allowed under different identifiers.
+* Every permutation uses every configuration exactly once. Order follows
+  `itertools.permutations` over the input order; labels join identifiers
+  with `->` (for example `B->C->A`). The output is deterministic.
+* The count `n!` is checked against `max_permutations` (default 24 = 4!)
+  before the pass configurations are validated further and before any
+  sequence is generated or written; `PermutationLimitError` reports the
+  expected count. Raise the limit explicitly, use fewer passes, or list
+  the wanted orders with `qch.batch.run_sequence_batch`.
+* Execution, comparison table, run IDs, failure handling and per-step
+  records are those of `qch.batch`; no schema change. Repeated steps
+  (A -> B -> A) are not permutations and stay with the explicit API.
+* Example: `examples/permutation_demo.py` (`preview`, `demo`, `run`).
+
+## Objective-aware comparison (`qch.objectives`)
+
+```python
+view = batch_result.objective_view()                      # no verification
+view = batch_result.objective_view({"A->B": True, "B->A": False})
+view.best_labels("depth")        # every sequence with the lowest depth
+view.pareto_front                # candidates not dominated by another one
+view.dominated_by["A->B"]        # labels that dominate A->B
+view.common_optimum()            # best in every objective, may be empty
+view.conflicts()                 # pairs of objectives without a common best
+print(view.format())
+```
+
+- Objectives are compared one by one, smaller is better, ties are kept;
+  there is no combined score. A candidate leaves the Pareto front only if
+  another candidate is no worse in every objective and strictly better in
+  at least one.
+- Only results of one input are compared (`ObjectiveInputError`
+  otherwise). Runs that did not succeed, results with a missing objective
+  value and results whose verification is `False` are listed in
+  `view.excluded` with a reason. Without a verification record a candidate
+  is marked `unverified`.
+- Candidates with identical metrics keep their own labels and run IDs
+  (`view.identical_metric_groups()`); equal metrics do not imply equal
+  circuits.
+- `qch.objectives.build_view(records, objectives, verification)` accepts
+  plain records, for example the experiment metrics of
+  `experiments/mqt_pass_order.py`; `experiments/objective_view.py show`
+  applies it read-only to one circuit of an experiment directory.
 
 ## Known limitations
 

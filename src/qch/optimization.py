@@ -16,7 +16,9 @@ Scope of version 1 (see ``docs/OPTIMIZATION_RUNS.md``):
   ``Optimize1qGatesDecomposition``, ``RemoveIdentityEquivalent``,
   ``CommutativeCancellation``, ``CommutativeInverseCancellation``,
   ``Optimize1qGatesSimpleCommutation``, ``Optimize1qGates``,
-  ``RemoveDiagonalGatesBeforeMeasure`` and ``RemoveResetInZeroState``.
+  ``RemoveDiagonalGatesBeforeMeasure``, ``RemoveResetInZeroState`` and
+  ``TwoQubitBlockResynthesis`` (a QCH composite of ``Collect2qBlocks``,
+  ``ConsolidateBlocks`` and ``UnitarySynthesis``, recorded as one step).
   ``RemoveDiagonalGatesBeforeMeasure`` only preserves measurement outcomes
   (see :func:`pass_equivalence`); all others return an equivalent circuit.
 * No implicit ``transpile`` and no target gate set conversion between or
@@ -87,10 +89,14 @@ from qiskit.converters import circuit_to_dag, dag_to_circuit
 from qiskit.synthesis.one_qubit.one_qubit_decompose import (
     ONE_QUBIT_EULER_BASIS_GATES,
 )
+from qiskit.passmanager.base_tasks import PropertySet
 from qiskit.transpiler import PassManager
+from qiskit.transpiler.basepasses import TransformationPass
 from qiskit.transpiler.passes import (
+    Collect2qBlocks,
     CommutativeCancellation,
     CommutativeInverseCancellation,
+    ConsolidateBlocks,
     InverseCancellation,
     Optimize1qGates,
     Optimize1qGatesDecomposition,
@@ -98,6 +104,7 @@ from qiskit.transpiler.passes import (
     RemoveDiagonalGatesBeforeMeasure,
     RemoveIdentityEquivalent,
     RemoveResetInZeroState,
+    UnitarySynthesis,
 )
 
 
@@ -526,6 +533,67 @@ def _build_commutative_inverse_cancellation(params):
     )
 
 
+class TwoQubitBlockResynthesis(TransformationPass):
+    """QCH composite step: re-synthesize two-qubit blocks exactly.
+
+    Runs three Qiskit passes on one DAG, in this order and with one private
+    property set, so that QCH records them as ONE step:
+
+    1. ``Collect2qBlocks()`` collects maximal blocks acting on two qubits;
+    2. ``ConsolidateBlocks(basis_gates=...)`` replaces a block by its
+       ``UnitaryGate`` when the KAK decomposition into the basis needs
+       fewer two-qubit gates (or the block uses gates outside the basis);
+    3. ``UnitarySynthesis(basis_gates=...)`` decomposes every unitary into
+       the basis.
+
+    ``approximation_degree`` is fixed to 1.0 (exact synthesis up to
+    numerical precision); the result is equivalent up to global phase.
+    """
+
+    def __init__(self, basis_gates):
+        super().__init__()
+        self.basis_gates = list(basis_gates)
+
+    def run(self, dag):
+        properties = PropertySet()
+        steps = (
+            Collect2qBlocks(),
+            ConsolidateBlocks(basis_gates=self.basis_gates,
+                              approximation_degree=1.0),
+            UnitarySynthesis(basis_gates=self.basis_gates,
+                             approximation_degree=1.0),
+        )
+        for step in steps:
+            step.property_set = properties
+            result = step.run(dag)
+            if result is not None:
+                dag = result
+        return dag
+
+
+#: Two-qubit gates supported as the KAK gate of TwoQubitBlockResynthesis.
+_KAK_GATES = ("cx", "cz", "ecr")
+
+
+def _normalize_two_qubit_block_resynthesis(params):
+    name = "TwoQubitBlockResynthesis"
+    _check_keys(name, params, {"basis_gates"}, required=("basis_gates",))
+    basis_gates = _validate_gate_name_list(
+        name, "basis_gates", params["basis_gates"]
+    )
+    if not set(_KAK_GATES) & set(basis_gates):
+        raise PassConfigError(
+            f"{name}: basis_gates must contain a two-qubit gate from "
+            f"{list(_KAK_GATES)}; without it no block is re-synthesized"
+        )
+    _require_euler_basis(name, basis_gates)
+    return {"basis_gates": basis_gates}
+
+
+def _build_two_qubit_block_resynthesis(params):
+    return TwoQubitBlockResynthesis(basis_gates=params["basis_gates"])
+
+
 def _normalize_no_params(pass_name):
     def normalize(params):
         _check_keys(pass_name, params, set())
@@ -608,6 +676,10 @@ PASS_REGISTRY = {
     "RemoveResetInZeroState": _RegistryEntry(
         _normalize_no_params("RemoveResetInZeroState"),
         lambda params: RemoveResetInZeroState(),
+    ),
+    "TwoQubitBlockResynthesis": _RegistryEntry(
+        _normalize_two_qubit_block_resynthesis,
+        _build_two_qubit_block_resynthesis,
     ),
 }
 
